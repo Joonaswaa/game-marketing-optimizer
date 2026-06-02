@@ -1,3 +1,4 @@
-# Local training extras (BG/NBD). Not required for the Streamlit app deploy.
+# Local training extras (BG/NBD + synthetic data). Not required for the Streamlit app deploy.
 -r requirements.txt
+Faker>=24.0.0
 lifetimes>=0.11.3

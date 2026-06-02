@@ -1,8 +1,8 @@
 # Pinned per agent_docs/tech_stack.md — Streamlit Cloud reads this from repo root
+# If deploy fails on the default Cloud Python version, environment.yml pins Python 3.12.
 streamlit==1.55.0
 pandas>=2.0.0,<3.0.0
 numpy>=1.26.0,<3.0.0
-Faker>=24.0.0
 scikit-learn>=1.4.0
 xgboost>=2.0.0
 scipy>=1.12.0

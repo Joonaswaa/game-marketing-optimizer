@@ -17,7 +17,6 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
-from lifetimes.utils import summary_data_from_transaction_data
 
 from src.features import FEATURE_COLUMNS, trophies_to_arena
 from src.utils import load_bgnbd_models, load_config
@@ -342,6 +341,8 @@ def load_channel_rfm_profiles() -> pd.DataFrame:
     config = load_config()
     transactions = load_transaction_data()
     acquisition = load_acquisition_data()
+
+    from lifetimes.utils import summary_data_from_transaction_data
 
     summary = summary_data_from_transaction_data(
         transactions,
@@ -878,6 +879,16 @@ def page_optimizer() -> None:
 
 def main() -> None:
     """Run the multipage Streamlit application."""
+    try:
+        _run_app()
+    except Exception as exc:
+        st.error("The app failed to start. Details below:")
+        st.exception(exc)
+        logger.exception("Streamlit app startup failed")
+
+
+def _run_app() -> None:
+    """Render the multipage dashboard."""
     config = load_config()
     game_title = config.get("game", {}).get("title", "Clash Royale UA Optimizer")
 
@@ -912,5 +923,4 @@ def main() -> None:
         page_optimizer()
 
 
-if __name__ == "__main__":
-    main()
+main()

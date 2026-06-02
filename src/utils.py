@@ -1,12 +1,16 @@
 """Shared utilities for config loading and logging."""
 
+from __future__ import annotations
+
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import yaml
-from lifetimes import BetaGeoFitter, GammaGammaFitter
+
+if TYPE_CHECKING:
+    from lifetimes import BetaGeoFitter, GammaGammaFitter
 
 
 def setup_logging(level: str = "INFO") -> None:
@@ -39,6 +43,7 @@ def save_bgnbd_models(
         model_path: Output path relative to project root.
     """
     import joblib
+    from lifetimes import BetaGeoFitter, GammaGammaFitter
 
     output_path = Path(__file__).parent.parent / model_path
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -64,6 +69,7 @@ def load_bgnbd_models(model_path: str) -> tuple[BetaGeoFitter, GammaGammaFitter]
         Tuple of restored (BetaGeoFitter, GammaGammaFitter) models.
     """
     import joblib
+    from lifetimes import BetaGeoFitter, GammaGammaFitter
 
     bundle = joblib.load(Path(__file__).parent.parent / model_path)
 

@@ -44,6 +44,39 @@ PLOTLY_LAYOUT: dict[str, Any] = {
 }
 
 
+def format_usd_k(value: float) -> str:
+    """
+    Format a dollar amount rounded to the nearest thousand with a k suffix.
+
+    Example: 20525.99 -> "$21000 k"
+
+    Args:
+        value: Dollar amount.
+
+    Returns:
+        Formatted string; values under $500 keep two decimal places.
+    """
+    amount = float(value)
+    if abs(amount) < 500:
+        return f"${amount:,.2f}"
+    rounded = int(round(amount / 1000) * 1000)
+    return f"${rounded} k"
+
+
+def format_count_k(value: float) -> str:
+    """
+    Format a large count rounded to the nearest thousand with a k suffix.
+
+    Args:
+        value: Numeric count (e.g. total players).
+
+    Returns:
+        Formatted string such as "100000 k" for 100_000.
+    """
+    rounded = int(round(float(value) / 1000) * 1000)
+    return f"{rounded} k"
+
+
 def _resolve_path(relative_path: str) -> Path:
     """Resolve a config path relative to the project root."""
     return PROJECT_ROOT / relative_path
@@ -376,10 +409,10 @@ def page_overview() -> None:
 
     render_kpi_cards(
         [
-            ("Players Acquired", f"{len(df):,}"),
-            ("Avg 90d IAP", f"${df['ltv_day90'].mean():.2f}"),
+            ("Players Acquired", format_count_k(len(df))),
+            ("Avg 90d IAP", format_usd_k(df["ltv_day90"].mean())),
             ("Day-7 Retention", f"{df['retained_day7'].mean():.1%}"),
-            ("Total UA Spend", f"${df['cost_per_install'].sum():,.0f}"),
+            ("Total UA Spend", format_usd_k(df["cost_per_install"].sum())),
         ]
     )
 
@@ -554,7 +587,7 @@ def page_predictions() -> None:
         with m1:
             st.metric("Day-7 retention", f"{retention_prob:.1%}")
         with m2:
-            st.metric("90-day IAP (USD)", f"${ltv_estimate:,.2f}")
+            st.metric("90-day IAP (USD)", format_usd_k(ltv_estimate))
         with m3:
             st.metric("Arena / trophies", f"Arena {arena} · {trophies:,} 🏆")
 
@@ -565,7 +598,7 @@ def page_predictions() -> None:
                 <span class="kpi-value">
                     {battles} battles @ {win_rate:.0%} WR · King {king_level} ·
                     {'clan' if clan_member else 'solo'} ·
-                    {'Pass active' if pass_royale else 'F2P pass'}
+                    {retention_prob:.0%} retain · {format_usd_k(ltv_estimate)} IAP
                 </span>
             </div>
             """,
@@ -584,8 +617,8 @@ def page_predictions() -> None:
                 diff = ltv_estimate - bgnbd_ltv
                 st.metric(
                     "BG/NBD 90-day IAP",
-                    f"${bgnbd_ltv:,.2f}",
-                    delta=f"{diff:+,.2f} vs XGBoost",
+                    format_usd_k(bgnbd_ltv),
+                    delta=f"{format_usd_k(diff)} vs XGBoost",
                 )
                 st.info(
                     "BG/NBD uses median gem-purchaser RFM for this UA channel. "
@@ -648,7 +681,7 @@ def _optimizer_panel(
         f"""
         <div class="result-card">
             <span class="kpi-label">Total expected return</span>
-            <span class="kpi-value">${result['total_expected_return']:,.0f}</span>
+            <span class="kpi-value">{format_usd_k(result['total_expected_return'])}</span>
         </div>
         """,
         unsafe_allow_html=True,
@@ -657,17 +690,25 @@ def _optimizer_panel(
     allocation_df = pd.DataFrame(
         {
             "Channel": channels,
-            "Allocation ($)": [result["allocations"][ch] for ch in channels],
-            "Share (%)": [result["percentages"][ch] for ch in channels],
-            "Expected Return ($)": [result["expected_returns"][ch] for ch in channels],
+            "Allocation": [format_usd_k(result["allocations"][ch]) for ch in channels],
+            "Share (%)": [round(result["percentages"][ch], 1) for ch in channels],
+            "Expected Return": [format_usd_k(result["expected_returns"][ch]) for ch in channels],
         }
     )
     st.dataframe(allocation_df, use_container_width=True, hide_index=True)
 
+    chart_values = pd.DataFrame(
+        {
+            "Channel": channels,
+            "Allocation ($)": [result["allocations"][ch] for ch in channels],
+            "Expected Return ($)": [result["expected_returns"][ch] for ch in channels],
+        }
+    )
+
     chart_col1, chart_col2 = st.columns(2, gap="large")
 
     pie_fig = px.pie(
-        allocation_df,
+        chart_values,
         names="Channel",
         values="Allocation ($)",
         title="Budget allocation",
@@ -679,7 +720,7 @@ def _optimizer_panel(
     style_plotly_fig(pie_fig)
 
     bar_fig = px.bar(
-        allocation_df,
+        chart_values,
         x="Channel",
         y="Expected Return ($)",
         title="Expected return by channel",

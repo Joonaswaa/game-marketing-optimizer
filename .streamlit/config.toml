@@ -10,3 +10,6 @@ headless = true
 
 [browser]
 gatherUsageStats = false
+
+[environment]
+pythonVersion = "3.12"

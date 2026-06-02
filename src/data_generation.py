@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from faker import Faker
 
-from preprocessing import trophies_to_arena
+from features import trophies_to_arena
 from utils import load_config, setup_logging
 
 logger = logging.getLogger(__name__)

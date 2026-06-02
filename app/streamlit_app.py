@@ -19,7 +19,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.budget_optimizer import optimize_budget
-from src.preprocessing import FEATURE_COLUMNS, trophies_to_arena
+from src.features import FEATURE_COLUMNS, trophies_to_arena
 from src.utils import load_bgnbd_models, load_config
 
 logger = logging.getLogger(__name__)

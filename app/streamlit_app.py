@@ -46,9 +46,9 @@ PLOTLY_LAYOUT: dict[str, Any] = {
 
 def format_usd_k(value: float) -> str:
     """
-    Format a dollar amount rounded to the nearest thousand with a k suffix.
+    Format a dollar amount rounded to the nearest thousand.
 
-    Example: 20525.99 -> "$21000 k"
+    Example: 20525.99 -> "$21000"
 
     Args:
         value: Dollar amount.
@@ -60,21 +60,21 @@ def format_usd_k(value: float) -> str:
     if abs(amount) < 500:
         return f"${amount:,.2f}"
     rounded = int(round(amount / 1000) * 1000)
-    return f"${rounded} k"
+    return f"${rounded:,}"
 
 
 def format_count_k(value: float) -> str:
     """
-    Format a large count rounded to the nearest thousand with a k suffix.
+    Format a large count rounded to the nearest thousand.
 
     Args:
         value: Numeric count (e.g. total players).
 
     Returns:
-        Formatted string such as "100000 k" for 100_000.
+        Formatted string such as "100,000" for 100_000.
     """
     rounded = int(round(float(value) / 1000) * 1000)
-    return f"{rounded} k"
+    return f"{rounded:,}"
 
 
 def _resolve_path(relative_path: str) -> Path:

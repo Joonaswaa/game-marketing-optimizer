@@ -1,0 +1,17 @@
+# Models — train locally, don't commit large binary files
+models/*.joblib
+
+# Data — regenerate with data_generation.py
+data/*.csv
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Notebooks checkpoints
+.ipynb_checkpoints/
+
+# OS
+.DS_Store

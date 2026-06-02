@@ -1,0 +1,34 @@
+data:
+  acquisition_path: "data/acquisition_data.csv"
+  transaction_path: "data/transaction_data.csv"
+  n_users: 100000
+  random_seed: 42
+  observation_period_end: "2024-12-31"
+  purchaser_rate: 0.20
+
+models:
+  retention_path: "models/retention_model.joblib"
+  ltv_xgboost_path: "models/ltv_xgboost_model.joblib"
+  bgnbd_path: "models/bgnbd_model.joblib"
+
+training:
+  test_size: 0.2
+  n_estimators: 200
+  max_depth: 6
+  learning_rate: 0.1
+
+channels:
+  - TikTok
+  - YouTube
+  - Instagram
+  - Facebook
+  - Google
+
+countries:
+  - US
+  - UK
+  - DE
+  - JP
+  - BR
+  - FR
+  - KR

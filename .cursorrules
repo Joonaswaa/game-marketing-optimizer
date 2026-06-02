@@ -1,0 +1,43 @@
+# Cursor Rules — Game Marketing Campaign Optimizer
+
+## Project Context
+**App:** Game Marketing Campaign Optimizer  
+**Stack:** Python 3.12 · Streamlit · XGBoost · lifetimes · SciPy · Plotly · joblib  
+**Stage:** MVP Development — 7-day build  
+
+## Directives
+1. **Read AGENTS.md first** — Always read `AGENTS.md` for current phase and tasks
+2. **Load agent_docs/** — Read the relevant doc before each area of work
+3. **Plan first** — Propose a brief plan and wait for approval before coding
+4. **One file at a time** — Complete and verify before moving on
+5. **Verify after changes** — Run `streamlit run app/streamlit_app.py` after each Streamlit change
+6. **Update AGENTS.md** — Mark tasks complete after finishing them
+
+## Critical Rules
+- `method='highs'` only in SciPy linprog — NEVER `method='simplex'`
+- `@st.cache_data` on every data loader function
+- `@st.cache_resource` on every model loader function  
+- Plotly only (`st.plotly_chart`) — NEVER matplotlib
+- `logging` module only — NEVER `print()`
+- Load all paths from `config/config.yaml`
+- Type hints required on all functions
+- Docstrings required on all public functions
+
+## What NOT To Do
+- Do NOT delete files without confirmation
+- Do NOT add features outside current phase
+- Do NOT import matplotlib
+- Do NOT use method='simplex'
+- Do NOT use print() for logging
+- Do NOT commit models/*.joblib or data/*.csv
+- Do NOT add packages without updating requirements.txt
+
+## Commands
+```bash
+pip install -r requirements.txt
+python src/data_generation.py
+python src/train_retention_model.py
+python src/train_ltv_model.py
+python src/train_bgnbd_model.py
+streamlit run app/streamlit_app.py
+```

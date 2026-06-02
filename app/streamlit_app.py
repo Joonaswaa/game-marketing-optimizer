@@ -618,9 +618,12 @@ def _optimizer_panel(
         {"Channel": channels, "Predicted ROAS": [predicted_roas[ch] for ch in channels]}
     )
     st.dataframe(
-        roas_df.style.background_gradient(subset=["Predicted ROAS"], cmap="Purples"),
+        roas_df,
         use_container_width=True,
         hide_index=True,
+        column_config={
+            "Predicted ROAS": st.column_config.NumberColumn(format="%.2f"),
+        },
     )
 
     try:

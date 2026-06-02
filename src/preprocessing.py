@@ -12,10 +12,10 @@ CATEGORICAL_FEATURES: list[str] = [
 
 NUMERIC_FEATURES: list[str] = [
     "cost_per_install",
-    "sessions_week1",
+    "battles_week1",
     "playtime_week1",
-    "levels_completed",
-    "social_interactions",
+    "arena_level",
+    "clan_donations_week1",
 ]
 
 FEATURE_COLUMNS: list[str] = CATEGORICAL_FEATURES + NUMERIC_FEATURES

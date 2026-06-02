@@ -1,4 +1,4 @@
-"""Generate synthetic acquisition and transaction datasets for the MVP."""
+"""Generate synthetic Clash Royale-style acquisition and transaction datasets."""
 
 import logging
 from datetime import datetime, timedelta
@@ -53,7 +53,7 @@ CHANNEL_QUALITY: dict[str, dict[str, float]] = {
 
 DEVICE_TYPES = ["iOS", "Android"]
 AGE_GROUPS = ["18-24", "25-34", "35-44", "45+"]
-TRANSACTION_TYPES = ["iap", "subscription", "battle_pass"]
+TRANSACTION_TYPES = ["gem_pack", "pass_royale", "chest_offer", "evo_shards"]
 
 COUNTRY_ENGAGEMENT: dict[str, float] = {
     "US": 1.10,
@@ -74,11 +74,10 @@ def generate_acquisition_data(
     observation_period_end: str,
 ) -> pd.DataFrame:
     """
-    Generate a synthetic user acquisition dataset with realistic feature correlations.
+    Generate a synthetic Clash Royale-style user acquisition dataset.
 
-    Channels are sampled by spend-mix probability. Week-1 engagement drives
-    retention via a logistic curve shifted by each channel's baseline; LTV is
-    a continuous function of engagement plus a retention bonus and channel tier.
+    Week-1 battles, arena progression, and clan activity drive retention and
+    90-day IAP (gem spend). Channel mix reflects typical mobile UA spend.
 
     Args:
         n_users: Number of users to generate.
@@ -133,27 +132,28 @@ def generate_acquisition_data(
     )
     device_boost = np.where(device_types == "iOS", 1.08, 1.0)
 
-    session_mean = np.clip(
-        8 + channel_session_boost * 10 + (country_engagement - 1) * 5, 3, 28
+    battle_mean = np.clip(
+        10 + channel_session_boost * 12 + (country_engagement - 1) * 6, 4, 45
     )
-    sessions_week1 = np.clip(
-        rng.poisson(session_mean) * device_boost, 1, 30
+    battles_week1 = np.clip(
+        rng.poisson(battle_mean) * device_boost, 1, 50
     ).astype(int)
 
     playtime_week1 = np.clip(
-        sessions_week1 * rng.uniform(0.4, 0.9, size=n_users) + rng.normal(0, 1.5, n_users),
+        battles_week1 * rng.uniform(0.35, 0.75, size=n_users) + rng.normal(0, 1.5, n_users),
         0.5,
         45.0,
     )
-    levels_completed = np.clip(
-        (sessions_week1 * rng.uniform(0.8, 1.6, size=n_users)).astype(int),
-        0,
-        120,
+    arena_level = np.clip(
+        1 + (battles_week1 * rng.uniform(0.12, 0.35, size=n_users)).astype(int)
+        + rng.integers(0, 3, size=n_users),
+        1,
+        15,
     )
-    social_interactions = np.clip(
-        (sessions_week1 * rng.uniform(0.3, 1.2, size=n_users)).astype(int),
+    clan_donations_week1 = np.clip(
+        (battles_week1 * rng.uniform(0.4, 1.8, size=n_users)).astype(int),
         0,
-        80,
+        200,
     )
 
     retention_boost = np.array(
@@ -162,12 +162,12 @@ def generate_acquisition_data(
     base_retention = np.array(
         [CHANNEL_QUALITY[ch]["base_retention"] for ch in acquisition_channels]
     )
-    # Week-1 engagement (Gemini day-1 level analog) drives retention; channel baseline shifts the curve.
+    # Week-1 battles and arena progression (Clash Royale engagement signals).
     engagement_index = (
-        (sessions_week1 / 30.0) * 0.35
-        + (playtime_week1 / 45.0) * 0.25
-        + (levels_completed / 120.0) * 0.20
-        + (social_interactions / 80.0) * 0.10
+        (battles_week1 / 50.0) * 0.35
+        + (playtime_week1 / 45.0) * 0.20
+        + (arena_level / 15.0) * 0.25
+        + (clan_donations_week1 / 200.0) * 0.10
         + retention_boost
         + (country_engagement - 1.0) * 0.08
         + (base_retention - 0.40) * 0.35
@@ -185,10 +185,10 @@ def generate_acquisition_data(
     )
     channel_ltv_effect = ltv_multiplier * 12.0
     ltv_day90 = np.clip(
-        sessions_week1 * 3.8
-        + playtime_week1 * 2.4
-        + levels_completed * 0.95
-        + social_interactions * 0.55
+        battles_week1 * 3.2
+        + playtime_week1 * 2.2
+        + arena_level * 8.5
+        + clan_donations_week1 * 0.45
         + cost_per_install * 2.0
         + channel_ltv_effect
         + retained_day7 * 35.0
@@ -212,10 +212,10 @@ def generate_acquisition_data(
             "device_type": device_types,
             "age_group": age_groups,
             "cost_per_install": np.round(cost_per_install, 2),
-            "sessions_week1": sessions_week1,
+            "battles_week1": battles_week1,
             "playtime_week1": np.round(playtime_week1, 2),
-            "levels_completed": levels_completed,
-            "social_interactions": social_interactions,
+            "arena_level": arena_level,
+            "clan_donations_week1": clan_donations_week1,
             "retained_day7": retained_day7,
             "ltv_day90": np.round(ltv_day90, 2),
             "is_purchaser": is_purchaser,
@@ -288,7 +288,7 @@ def generate_transaction_data(
             transaction_type = str(
                 rng.choice(
                     TRANSACTION_TYPES,
-                    p=[0.55, 0.30, 0.15],
+                    p=[0.50, 0.25, 0.15, 0.10],
                 )
             )
 
@@ -319,14 +319,14 @@ def validate_correlations(acquisition_df: pd.DataFrame) -> None:
     Args:
         acquisition_df: Generated acquisition DataFrame.
     """
-    session_retention_corr = acquisition_df["sessions_week1"].corr(
+    battle_retention_corr = acquisition_df["battles_week1"].corr(
         acquisition_df["retained_day7"]
     )
-    session_ltv_corr = acquisition_df["sessions_week1"].corr(acquisition_df["ltv_day90"])
+    battle_ltv_corr = acquisition_df["battles_week1"].corr(acquisition_df["ltv_day90"])
     channel_ltv = acquisition_df.groupby("acquisition_channel")["ltv_day90"].mean()
 
-    logger.info("Correlation sessions_week1 vs retained_day7: %.3f", session_retention_corr)
-    logger.info("Correlation sessions_week1 vs ltv_day90: %.3f", session_ltv_corr)
+    logger.info("Correlation battles_week1 vs retained_day7: %.3f", battle_retention_corr)
+    logger.info("Correlation battles_week1 vs ltv_day90: %.3f", battle_ltv_corr)
     logger.info("Average LTV by channel:\n%s", channel_ltv.sort_values(ascending=False))
 
 

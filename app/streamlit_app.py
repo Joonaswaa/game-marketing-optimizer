@@ -68,12 +68,12 @@ def inject_custom_css() -> None:
         }
 
         .hero-banner {
-            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 45%, #9333ea 100%);
+            background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 40%, #d97706 100%);
             border-radius: 20px;
             padding: 1.75rem 2rem;
             margin-bottom: 1.75rem;
             color: #ffffff;
-            box-shadow: 0 20px 40px -12px rgba(79, 70, 229, 0.45);
+            box-shadow: 0 20px 40px -12px rgba(30, 58, 138, 0.45);
         }
 
         .hero-banner h1 {
@@ -129,8 +129,8 @@ def inject_custom_css() -> None:
 
         .kpi-card:hover {
             transform: translateY(-3px);
-            box-shadow: 0 12px 24px -8px rgba(79, 70, 229, 0.25);
-            border-color: #c7d2fe;
+            box-shadow: 0 12px 24px -8px rgba(217, 119, 6, 0.3);
+            border-color: #fcd34d;
         }
 
         .kpi-label {
@@ -162,14 +162,14 @@ def inject_custom_css() -> None:
         }
 
         .result-card {
-            background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%);
-            border: 1px solid #ddd6fe;
+            background: linear-gradient(135deg, #eff6ff 0%, #fef3c7 100%);
+            border: 1px solid #fcd34d;
             border-radius: 16px;
             padding: 1.25rem 1.5rem;
             margin: 1rem 0;
         }
 
-        .result-card .kpi-value { color: #5b21b6; }
+        .result-card .kpi-value { color: #b45309; }
 
         div[data-testid="stSidebar"] {
             background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
@@ -218,19 +218,19 @@ def inject_custom_css() -> None:
 
         div.stButton > button[kind="primary"],
         div.stFormSubmitButton > button {
-            background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
+            background: linear-gradient(135deg, #2563eb, #d97706) !important;
             border: none !important;
             border-radius: 12px !important;
             padding: 0.6rem 1.5rem !important;
             font-weight: 600 !important;
-            box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4) !important;
+            box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4) !important;
             transition: transform 0.15s ease, box-shadow 0.15s ease !important;
         }
 
         div.stButton > button[kind="primary"]:hover,
         div.stFormSubmitButton > button:hover {
             transform: translateY(-1px) !important;
-            box-shadow: 0 8px 20px rgba(99, 102, 241, 0.5) !important;
+            box-shadow: 0 8px 20px rgba(217, 119, 6, 0.45) !important;
         }
 
         div[data-testid="stMetric"] {
@@ -368,19 +368,19 @@ def load_bgnbd_bundle():
 def page_overview() -> None:
     """Campaign overview with KPIs and channel performance charts."""
     render_hero(
-        "Campaign Overview",
-        "High-level performance across all acquisition channels.",
-        badge="Analytics",
+        "UA Campaign Overview",
+        "Track player installs, gem spend, and ROAS across ad channels — synthetic Clash Royale data.",
+        badge="King's Arena",
     )
 
     df = load_acquisition_data()
 
     render_kpi_cards(
         [
-            ("Total Users", f"{len(df):,}"),
-            ("Avg LTV", f"${df['ltv_day90'].mean():.2f}"),
+            ("Players Acquired", f"{len(df):,}"),
+            ("Avg IAP (90d)", f"${df['ltv_day90'].mean():.2f}"),
             ("Day-7 Retention", f"{df['retained_day7'].mean():.1%}"),
-            ("Total Ad Spend", f"${df['cost_per_install'].sum():,.0f}"),
+            ("Total UA Spend", f"${df['cost_per_install'].sum():,.0f}"),
         ]
     )
 
@@ -396,7 +396,7 @@ def page_overview() -> None:
         x="cost_per_install",
         y="acquisition_channel",
         orientation="h",
-        title="Average CPA by Channel",
+        title="Cost Per Install by Channel",
         labels={"acquisition_channel": "Channel", "cost_per_install": "CPA ($)"},
         color="acquisition_channel",
         color_discrete_map=channel_color_map(cpa_df["acquisition_channel"].tolist()),
@@ -469,11 +469,11 @@ def _predict_bgnbd_ltv(channel: str) -> float | None:
 
 
 def page_predictions() -> None:
-    """Player retention and LTV prediction form."""
+    """Player retention and IAP prediction form."""
     render_hero(
-        "Player Predictions",
-        "Predict Day-7 retention and 90-day LTV for a new player profile.",
-        badge="ML Models",
+        "Player Value Predictor",
+        "Forecast Day-7 retention and 90-day gem spend from week-1 battles and arena progress.",
+        badge="Card Machine",
     )
 
     config = load_config()
@@ -492,32 +492,32 @@ def page_predictions() -> None:
         return
 
     with st.container(border=True):
-        st.markdown("##### Player profile")
+        st.markdown("##### New player scout")
         with st.form("prediction_form", border=False):
             col1, col2 = st.columns(2, gap="large")
             with col1:
-                st.markdown("**Acquisition**")
-                channel = st.selectbox("Channel", channels)
+                st.markdown("**Install source**")
+                channel = st.selectbox("UA channel", channels)
                 country = st.selectbox("Country", countries)
-                device = st.selectbox("Device", DEVICE_TYPES)
+                device = st.selectbox("Platform", DEVICE_TYPES)
                 age_group = st.selectbox("Age group", AGE_GROUPS)
             with col2:
-                st.markdown("**Week 1 engagement**")
-                sessions = st.slider("Sessions", min_value=1, max_value=30, value=10)
+                st.markdown("**Week 1 — Arena & clan**")
+                battles = st.slider("Battles played", min_value=1, max_value=50, value=12)
                 playtime = st.slider(
                     "Playtime (hours)", min_value=0.5, max_value=45.0, value=8.0, step=0.5
                 )
-                levels = st.slider("Levels completed", min_value=0, max_value=120, value=15)
-                social = st.slider("Social interactions", min_value=0, max_value=80, value=10)
+                arena = st.slider("Arena level", min_value=1, max_value=15, value=5)
+                clan_donations = st.slider("Clan card donations", min_value=0, max_value=200, value=15)
                 cpi = st.slider(
                     "Cost per install ($)", min_value=0.5, max_value=20.0, value=3.0, step=0.1
                 )
 
             has_purchase_history = st.toggle(
-                "Include purchase history (BG/NBD comparison)",
+                "Has gem purchase history (BG/NBD comparison)",
                 value=False,
             )
-            submitted = st.form_submit_button("Run prediction", type="primary", use_container_width=True)
+            submitted = st.form_submit_button("Scout player", type="primary", use_container_width=True)
 
     if submitted:
         input_df = pd.DataFrame(
@@ -528,10 +528,10 @@ def page_predictions() -> None:
                     "device_type": device,
                     "age_group": age_group,
                     "cost_per_install": cpi,
-                    "sessions_week1": sessions,
+                    "battles_week1": battles,
                     "playtime_week1": playtime,
-                    "levels_completed": levels,
-                    "social_interactions": social,
+                    "arena_level": arena,
+                    "clan_donations_week1": clan_donations,
                 }
             ]
         )
@@ -539,26 +539,26 @@ def page_predictions() -> None:
         retention_prob = float(retention_model.predict_proba(input_df[FEATURE_COLUMNS])[0, 1])
         ltv_estimate = float(ltv_model.predict(input_df[FEATURE_COLUMNS])[0])
 
-        st.markdown("##### XGBoost predictions")
+        st.markdown("##### XGBoost forecast")
         m1, m2 = st.columns(2, gap="medium")
         with m1:
             st.metric("Day-7 retention", f"{retention_prob:.1%}")
         with m2:
-            st.metric("90-day LTV", f"${ltv_estimate:,.2f}")
+            st.metric("90-day IAP (gem spend)", f"${ltv_estimate:,.2f}")
 
         st.markdown(
             f"""
             <div class="result-card">
-                <span class="kpi-label">Combined insight</span>
+                <span class="kpi-label">Scout report</span>
                 <span class="kpi-value">
-                    {retention_prob:.0%} likely to retain · ${ltv_estimate:,.0f} expected value
+                    {retention_prob:.0%} retention chance · ${ltv_estimate:,.0f} projected spend
                 </span>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-        st.markdown("##### BG/NBD comparison")
+        st.markdown("##### BG/NBD gem spend model")
         if has_purchase_history:
             bgnbd_ltv = _predict_bgnbd_ltv(channel)
             if bgnbd_ltv is None:
@@ -569,17 +569,17 @@ def page_predictions() -> None:
             else:
                 diff = ltv_estimate - bgnbd_ltv
                 st.metric(
-                    "BG/NBD 90-day LTV",
+                    "BG/NBD 90-day IAP",
                     f"${bgnbd_ltv:,.2f}",
                     delta=f"{diff:+,.2f} vs XGBoost",
                 )
                 st.info(
-                    "BG/NBD uses median repeat-buyer RFM stats for the selected channel. "
-                    "XGBoost uses the full player profile above."
+                    "BG/NBD uses median gem-purchaser stats for this UA channel. "
+                    "XGBoost uses battles, arena, and clan activity above."
                 )
         else:
             st.info(
-                "Toggle **Include purchase history** to compare against the BG/NBD model."
+                "Enable **Has gem purchase history** to compare against the BG/NBD model."
             )
 
 
@@ -683,9 +683,9 @@ def _optimizer_panel(
 def page_optimizer() -> None:
     """Budget allocation optimizer across ad channels."""
     render_hero(
-        "Budget Optimizer",
-        "Allocate spend across channels to maximize expected return — updates live.",
-        badge="Optimization",
+        "War Chest Allocator",
+        "Split your UA budget across channels to maximize gem-spend ROAS — updates live.",
+        badge="Elixir Trade",
     )
 
     config = load_config()
@@ -700,9 +700,12 @@ def page_optimizer() -> None:
 
 def main() -> None:
     """Run the multipage Streamlit application."""
+    config = load_config()
+    game_title = config.get("game", {}).get("title", "Clash Royale UA Optimizer")
+
     st.set_page_config(
-        page_title="Game Marketing Campaign Optimizer",
-        page_icon="📊",
+        page_title=game_title,
+        page_icon="⚔️",
         layout="wide",
         initial_sidebar_state="expanded",
     )
@@ -710,22 +713,22 @@ def main() -> None:
     inject_custom_css()
 
     with st.sidebar:
-        st.markdown('<p class="sidebar-brand">Game Marketing Optimizer</p>', unsafe_allow_html=True)
+        st.markdown(f'<p class="sidebar-brand">{game_title}</p>', unsafe_allow_html=True)
         st.markdown(
-            '<p class="sidebar-tagline">Campaign analytics · ML predictions · Budget allocation</p>',
+            '<p class="sidebar-tagline">Synthetic CR player data · UA analytics · Gem spend ML</p>',
             unsafe_allow_html=True,
         )
         page = st.radio(
             "Navigation",
-            ["Campaign Overview", "Player Predictions", "Budget Optimizer"],
+            ["UA Campaign Overview", "Player Value Predictor", "War Chest Allocator"],
             label_visibility="collapsed",
         )
         st.divider()
-        st.caption("Built with XGBoost · lifetimes · SciPy")
+        st.caption("Fan project · Not affiliated with Supercell")
 
-    if page == "Campaign Overview":
+    if page == "UA Campaign Overview":
         page_overview()
-    elif page == "Player Predictions":
+    elif page == "Player Value Predictor":
         page_predictions()
     else:
         page_optimizer()

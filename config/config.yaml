@@ -17,6 +17,11 @@ training:
   max_depth: 6
   learning_rate: 0.1
 
+game:
+  title: "Clash Royale UA Optimizer"
+  tagline: "Synthetic player acquisition analytics for mobile strategy games"
+  currency: "USD"
+
 channels:
   - TikTok
   - YouTube

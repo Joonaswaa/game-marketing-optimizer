@@ -342,7 +342,12 @@ def load_channel_rfm_profiles() -> pd.DataFrame:
     transactions = load_transaction_data()
     acquisition = load_acquisition_data()
 
-    from lifetimes.utils import summary_data_from_transaction_data
+    try:
+        from lifetimes.utils import summary_data_from_transaction_data
+    except ImportError as exc:
+        raise ImportError(
+            "lifetimes is not installed. BG/NBD profiles are unavailable on this runtime."
+        ) from exc
 
     summary = summary_data_from_transaction_data(
         transactions,
@@ -395,7 +400,11 @@ def load_bgnbd_bundle():
     path = _resolve_path(config["models"]["bgnbd_path"])
     if not path.exists():
         return None
-    return load_bgnbd_models(config["models"]["bgnbd_path"])
+    try:
+        return load_bgnbd_models(config["models"]["bgnbd_path"])
+    except ImportError:
+        logger.warning("lifetimes not installed; BG/NBD predictions unavailable")
+        return None
 
 
 def page_overview() -> None:
@@ -482,7 +491,10 @@ def _predict_bgnbd_ltv(channel: str) -> float | None:
         return None
 
     bgf, ggf = bundle
-    profiles = load_channel_rfm_profiles()
+    try:
+        profiles = load_channel_rfm_profiles()
+    except ImportError:
+        return None
     channel_profile = profiles[profiles["acquisition_channel"] == channel]
     if channel_profile.empty:
         return None

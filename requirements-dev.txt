@@ -1,0 +1,3 @@
+# Local training extras (BG/NBD). Not required for the Streamlit app deploy.
+-r requirements.txt
+lifetimes>=0.11.3

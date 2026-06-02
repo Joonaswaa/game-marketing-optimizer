@@ -18,7 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.budget_optimizer import optimize_budget
+from src.budget_optimizer import optimize_budget_with_uncertainty
 from src.features import FEATURE_COLUMNS, trophies_to_arena
 from src.utils import load_bgnbd_models, load_config
 
@@ -632,8 +632,12 @@ def page_predictions() -> None:
 def _optimizer_panel(
     channels: list[str],
     predicted_roas: dict[str, float],
+    roas_std: dict[str, float],
     saturation_scales: dict[str, float],
     default_max_share: float,
+    mc_simulations: int,
+    roas_cv: float,
+    random_seed: int,
 ) -> None:
     """Reactive budget optimizer panel — reruns on widget changes."""
     st.markdown("##### Budget & constraints")
@@ -687,22 +691,32 @@ def _optimizer_panel(
     )
 
     try:
-        result = optimize_budget(
+        result = optimize_budget_with_uncertainty(
             total_budget,
             min_spends,
             predicted_roas,
             saturation_scales=saturation_scales,
+            roas_std=roas_std,
             max_channel_share=max_channel_share,
+            n_simulations=mc_simulations,
+            seed=random_seed,
+            default_roas_cv=roas_cv,
         )
     except ValueError as exc:
         st.error(str(exc))
         return
 
+    uncertainty = result["uncertainty"]
+    total_band = uncertainty["total"]
+
     st.markdown(
         f"""
         <div class="result-card">
-            <span class="kpi-label">Total expected return</span>
-            <span class="kpi-value">{format_usd_k(result['total_expected_return'])}</span>
+            <span class="kpi-label">Total expected return (P50)</span>
+            <span class="kpi-value">{format_usd_k(total_band['p50'])}</span>
+            <span class="kpi-label" style="margin-top:0.5rem;display:block;">
+                90% band: {format_usd_k(total_band['p10'])} – {format_usd_k(total_band['p90'])}
+            </span>
         </div>
         """,
         unsafe_allow_html=True,
@@ -713,11 +727,48 @@ def _optimizer_panel(
             "Channel": channels,
             "Allocation": [format_usd_k(result["allocations"][ch]) for ch in channels],
             "Share (%)": [round(result["percentages"][ch], 1) for ch in channels],
-            "Expected Return": [format_usd_k(result["expected_returns"][ch]) for ch in channels],
+            "Return P50": [
+                format_usd_k(uncertainty["channel_bands"][ch]["p50"]) for ch in channels
+            ],
+            "Return P10–P90": [
+                f"{format_usd_k(uncertainty['channel_bands'][ch]['p10'])} – "
+                f"{format_usd_k(uncertainty['channel_bands'][ch]['p90'])}"
+                for ch in channels
+            ],
             "Marginal ROAS": [round(result["marginal_roas"][ch], 2) for ch in channels],
         }
     )
     st.dataframe(allocation_df, use_container_width=True, hide_index=True)
+
+    st.markdown("##### Return uncertainty (Monte Carlo)")
+    mc_df = pd.DataFrame({"Total Return ($)": uncertainty["simulated_totals"]})
+    hist_fig = px.histogram(
+        mc_df,
+        x="Total Return ($)",
+        nbins=40,
+        title=f"Simulated total return ({mc_simulations:,} runs, ROAS noise)",
+        template="plotly_white",
+    )
+    hist_fig.add_vline(
+        x=total_band["p10"],
+        line_dash="dash",
+        line_color="#64748b",
+        annotation_text="P10",
+    )
+    hist_fig.add_vline(
+        x=total_band["p50"],
+        line_dash="solid",
+        line_color="#2563eb",
+        annotation_text="P50",
+    )
+    hist_fig.add_vline(
+        x=total_band["p90"],
+        line_dash="dash",
+        line_color="#64748b",
+        annotation_text="P90",
+    )
+    style_plotly_fig(hist_fig)
+    st.plotly_chart(hist_fig, use_container_width=True)
 
     chart_values = pd.DataFrame(
         {
@@ -741,15 +792,35 @@ def _optimizer_panel(
     pie_fig.update_traces(textposition="inside", textinfo="percent+label")
     style_plotly_fig(pie_fig)
 
-    bar_fig = px.bar(
-        chart_values,
-        x="Channel",
-        y="Expected Return ($)",
-        title="Expected return by channel",
-        color="Channel",
-        color_discrete_map=channel_color_map(channels),
+    p50_returns = [uncertainty["channel_bands"][ch]["p50"] for ch in channels]
+    error_plus = [
+        uncertainty["channel_bands"][ch]["p90"] - uncertainty["channel_bands"][ch]["p50"]
+        for ch in channels
+    ]
+    error_minus = [
+        uncertainty["channel_bands"][ch]["p50"] - uncertainty["channel_bands"][ch]["p10"]
+        for ch in channels
+    ]
+    bar_fig = go.Figure(
+        data=[
+            go.Bar(
+                x=channels,
+                y=p50_returns,
+                marker_color=[CHANNEL_COLORS.get(ch, "#64748B") for ch in channels],
+                error_y={
+                    "type": "data",
+                    "symmetric": False,
+                    "array": error_plus,
+                    "arrayminus": error_minus,
+                },
+            )
+        ]
     )
-    bar_fig.update_traces(marker_line_width=0, opacity=0.92)
+    bar_fig.update_layout(
+        title="Expected return by channel (P50, P10–P90 band)",
+        xaxis_title="Channel",
+        yaxis_title="Return ($)",
+    )
     style_plotly_fig(bar_fig)
 
     with chart_col1:
@@ -771,6 +842,7 @@ def page_optimizer() -> None:
     df = load_acquisition_data()
 
     predicted_roas = df.groupby("acquisition_channel")["roas_90d"].mean().to_dict()
+    roas_std = df.groupby("acquisition_channel")["roas_90d"].std().fillna(0).to_dict()
     opt_cfg = config.get("optimizer", {})
     default_sat = float(opt_cfg.get("default_saturation", 25000))
     saturation_scales = {
@@ -778,9 +850,21 @@ def page_optimizer() -> None:
         for ch in channels
     }
     max_share = float(opt_cfg.get("max_channel_share", 0.40))
+    mc_sims = int(opt_cfg.get("monte_carlo_simulations", 2000))
+    roas_cv = float(opt_cfg.get("roas_uncertainty_cv", 0.15))
+    seed = int(config["data"]["random_seed"])
 
     with st.container(border=True):
-        _optimizer_panel(channels, predicted_roas, saturation_scales, max_share)
+        _optimizer_panel(
+            channels,
+            predicted_roas,
+            roas_std,
+            saturation_scales,
+            max_share,
+            mc_sims,
+            roas_cv,
+            seed,
+        )
 
 
 def main() -> None:

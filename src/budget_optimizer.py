@@ -165,3 +165,130 @@ def optimize_budget(
         "total_expected_return": total_expected_return,
         "max_channel_share": max_channel_share,
     }
+
+
+def monte_carlo_return_distribution(
+    allocations: dict[str, float],
+    predicted_roas: dict[str, float],
+    saturation_scales: dict[str, float] | None = None,
+    roas_std: dict[str, float] | None = None,
+    n_simulations: int = 2000,
+    seed: int = 42,
+    default_roas_cv: float = 0.15,
+) -> dict[str, Any]:
+    """
+    Simulate uncertainty in total and per-channel returns via ROAS noise.
+
+    Each simulation draws channel ROAS from a normal distribution centered on
+    the point estimate, then recomputes diminishing-return revenue. This
+    produces empirical confidence bands (P10 / P50 / P90).
+
+    Args:
+        allocations: Optimized spend per channel.
+        predicted_roas: Point-estimate ROAS per channel.
+        saturation_scales: Saturation scale per channel.
+        roas_std: Optional observed ROAS standard deviation per channel.
+        n_simulations: Number of Monte Carlo draws.
+        seed: Random seed for reproducibility.
+        default_roas_cv: Coefficient of variation when channel std is unknown.
+
+    Returns:
+        Dict with percentile bands, per-channel bands, and raw total simulations.
+    """
+    rng = np.random.default_rng(seed)
+    channels = list(allocations.keys())
+    scales = saturation_scales or {}
+
+    totals = np.zeros(n_simulations)
+    channel_sims: dict[str, np.ndarray] = {ch: np.zeros(n_simulations) for ch in channels}
+
+    for sim_idx in range(n_simulations):
+        sim_total = 0.0
+        for ch in channels:
+            mean_roas = max(predicted_roas[ch], 0.01)
+            if roas_std and ch in roas_std and roas_std[ch] > 0:
+                std = float(roas_std[ch])
+            else:
+                std = mean_roas * default_roas_cv
+            std = max(std, mean_roas * 0.05)
+
+            sampled_roas = max(float(rng.normal(mean_roas, std)), 0.01)
+            sat = max(scales.get(ch, DEFAULT_SATURATION), 1_000.0)
+            ret = channel_return(allocations[ch], sampled_roas, sat)
+            channel_sims[ch][sim_idx] = ret
+            sim_total += ret
+        totals[sim_idx] = sim_total
+
+    def _percentiles(arr: np.ndarray) -> dict[str, float]:
+        return {
+            "p10": float(np.percentile(arr, 10)),
+            "p50": float(np.percentile(arr, 50)),
+            "p90": float(np.percentile(arr, 90)),
+            "mean": float(np.mean(arr)),
+            "std": float(np.std(arr)),
+        }
+
+    total_stats = _percentiles(totals)
+    channel_bands = {ch: _percentiles(channel_sims[ch]) for ch in channels}
+
+    logger.info(
+        "Monte Carlo (%d sims): total return P10=$%.0f P50=$%.0f P90=$%.0f",
+        n_simulations,
+        total_stats["p10"],
+        total_stats["p50"],
+        total_stats["p90"],
+    )
+
+    return {
+        "n_simulations": n_simulations,
+        "total": total_stats,
+        "simulated_totals": totals,
+        "channel_bands": channel_bands,
+    }
+
+
+def optimize_budget_with_uncertainty(
+    total_budget: float,
+    min_spends: dict[str, float],
+    predicted_roas: dict[str, float],
+    saturation_scales: dict[str, float] | None = None,
+    roas_std: dict[str, float] | None = None,
+    max_channel_share: float = DEFAULT_MAX_CHANNEL_SHARE,
+    n_simulations: int = 2000,
+    seed: int = 42,
+    default_roas_cv: float = 0.15,
+) -> dict[str, Any]:
+    """
+    Run budget optimization then Monte Carlo uncertainty on the allocation.
+
+    Args:
+        total_budget: Total budget to allocate.
+        min_spends: Minimum spend per channel.
+        predicted_roas: Point-estimate ROAS per channel.
+        saturation_scales: Saturation scales for response curves.
+        roas_std: Optional ROAS standard deviation per channel from data.
+        max_channel_share: Max fraction of budget per channel.
+        n_simulations: Monte Carlo simulation count.
+        seed: Random seed.
+        default_roas_cv: Default ROAS CV when std is unavailable.
+
+    Returns:
+        Optimization result dict plus a ``uncertainty`` key with MC bands.
+    """
+    result = optimize_budget(
+        total_budget,
+        min_spends,
+        predicted_roas,
+        saturation_scales=saturation_scales,
+        max_channel_share=max_channel_share,
+    )
+    result["uncertainty"] = monte_carlo_return_distribution(
+        allocations=result["allocations"],
+        predicted_roas=predicted_roas,
+        saturation_scales=saturation_scales,
+        roas_std=roas_std,
+        n_simulations=n_simulations,
+        seed=seed,
+        default_roas_cv=default_roas_cv,
+    )
+    return result

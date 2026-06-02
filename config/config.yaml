@@ -41,6 +41,8 @@ countries:
 optimizer:
   max_channel_share: 0.40
   default_saturation: 25000
+  monte_carlo_simulations: 2000
+  roas_uncertainty_cv: 0.15
   # Lower saturation = faster diminishing returns (cheap inventory fills up)
   channel_saturation:
     TikTok: 12000

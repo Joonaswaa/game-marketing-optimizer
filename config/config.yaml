@@ -37,3 +37,14 @@ countries:
   - BR
   - FR
   - KR
+
+optimizer:
+  max_channel_share: 0.40
+  default_saturation: 25000
+  # Lower saturation = faster diminishing returns (cheap inventory fills up)
+  channel_saturation:
+    TikTok: 12000
+    YouTube: 28000
+    Instagram: 22000
+    Facebook: 25000
+    Google: 30000

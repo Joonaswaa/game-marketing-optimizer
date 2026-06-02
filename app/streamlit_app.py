@@ -632,9 +632,16 @@ def page_predictions() -> None:
 def _optimizer_panel(
     channels: list[str],
     predicted_roas: dict[str, float],
+    saturation_scales: dict[str, float],
+    default_max_share: float,
 ) -> None:
     """Reactive budget optimizer panel — reruns on widget changes."""
     st.markdown("##### Budget & constraints")
+    st.caption(
+        "Uses **diminishing returns** per channel (log response curve) and a max share cap — "
+        "not naive linear ROAS, so one channel cannot absorb the entire budget."
+    )
+
     total_budget = st.slider(
         "Total budget ($)",
         min_value=1_000,
@@ -642,6 +649,14 @@ def _optimizer_panel(
         value=100_000,
         step=1_000,
     )
+    max_channel_share = st.slider(
+        "Max share per channel (%)",
+        min_value=20,
+        max_value=60,
+        value=int(default_max_share * 100),
+        step=5,
+        help="Growth teams rarely put more than 40–50% of UA budget in one channel.",
+    ) / 100.0
 
     st.caption("Minimum spend per channel")
     min_cols = st.columns(len(channels), gap="small")
@@ -672,7 +687,13 @@ def _optimizer_panel(
     )
 
     try:
-        result = optimize_budget(total_budget, min_spends, predicted_roas)
+        result = optimize_budget(
+            total_budget,
+            min_spends,
+            predicted_roas,
+            saturation_scales=saturation_scales,
+            max_channel_share=max_channel_share,
+        )
     except ValueError as exc:
         st.error(str(exc))
         return
@@ -693,6 +714,7 @@ def _optimizer_panel(
             "Allocation": [format_usd_k(result["allocations"][ch]) for ch in channels],
             "Share (%)": [round(result["percentages"][ch], 1) for ch in channels],
             "Expected Return": [format_usd_k(result["expected_returns"][ch]) for ch in channels],
+            "Marginal ROAS": [round(result["marginal_roas"][ch], 2) for ch in channels],
         }
     )
     st.dataframe(allocation_df, use_container_width=True, hide_index=True)
@@ -749,9 +771,16 @@ def page_optimizer() -> None:
     df = load_acquisition_data()
 
     predicted_roas = df.groupby("acquisition_channel")["roas_90d"].mean().to_dict()
+    opt_cfg = config.get("optimizer", {})
+    default_sat = float(opt_cfg.get("default_saturation", 25000))
+    saturation_scales = {
+        ch: float(opt_cfg.get("channel_saturation", {}).get(ch, default_sat))
+        for ch in channels
+    }
+    max_share = float(opt_cfg.get("max_channel_share", 0.40))
 
     with st.container(border=True):
-        _optimizer_panel(channels, predicted_roas)
+        _optimizer_panel(channels, predicted_roas, saturation_scales, max_share)
 
 
 def main() -> None:

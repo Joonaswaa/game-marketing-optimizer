@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
-import logging
 import sys
 from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+import logging
 from typing import Any
 
 import joblib
@@ -14,11 +19,6 @@ import plotly.graph_objects as go
 import streamlit as st
 from lifetimes.utils import summary_data_from_transaction_data
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-from src.budget_optimizer import optimize_budget_with_uncertainty
 from src.features import FEATURE_COLUMNS, trophies_to_arena
 from src.utils import load_bgnbd_models, load_config
 
@@ -689,6 +689,15 @@ def _optimizer_panel(
             "Predicted ROAS": st.column_config.NumberColumn(format="%.2f"),
         },
     )
+
+    try:
+        from src.budget_optimizer import optimize_budget_with_uncertainty
+    except ImportError as exc:
+        st.error(
+            "Budget optimizer failed to load (SciPy may be missing on the server). "
+            f"Details: {exc}"
+        )
+        return
 
     try:
         result = optimize_budget_with_uncertainty(

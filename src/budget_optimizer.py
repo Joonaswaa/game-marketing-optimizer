@@ -4,7 +4,6 @@ import logging
 from typing import Any
 
 import numpy as np
-from scipy.optimize import minimize
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +123,8 @@ def optimize_budget(
         x0 = min_array + (total_budget - min_array.sum()) * (
             (max_array - min_array) / (max_array - min_array).sum()
         )
+
+    from scipy.optimize import minimize
 
     result = minimize(
         objective,

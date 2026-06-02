@@ -1,4 +1,4 @@
-"""Generate synthetic Clash Royale-style acquisition and transaction datasets."""
+"""Generate synthetic Clash Royale player acquisition and IAP transaction data."""
 
 import logging
 from datetime import datetime, timedelta
@@ -8,11 +8,11 @@ import numpy as np
 import pandas as pd
 from faker import Faker
 
+from preprocessing import trophies_to_arena
 from utils import load_config, setup_logging
 
 logger = logging.getLogger(__name__)
 
-# Channel mix, CPI, retention baseline, and LTV tier aligned with product_requirements.
 CHANNEL_QUALITY: dict[str, dict[str, float]] = {
     "TikTok": {
         "channel_prob": 0.25,
@@ -20,6 +20,7 @@ CHANNEL_QUALITY: dict[str, dict[str, float]] = {
         "base_retention": 0.33,
         "retention_boost": -0.05,
         "avg_ltv_multiplier": 1.0,
+        "skill_bias": -0.08,
     },
     "Facebook": {
         "channel_prob": 0.20,
@@ -27,6 +28,7 @@ CHANNEL_QUALITY: dict[str, dict[str, float]] = {
         "base_retention": 0.40,
         "retention_boost": 0.05,
         "avg_ltv_multiplier": 1.5,
+        "skill_bias": 0.02,
     },
     "Google": {
         "channel_prob": 0.30,
@@ -34,6 +36,7 @@ CHANNEL_QUALITY: dict[str, dict[str, float]] = {
         "base_retention": 0.42,
         "retention_boost": 0.10,
         "avg_ltv_multiplier": 2.0,
+        "skill_bias": 0.05,
     },
     "Instagram": {
         "channel_prob": 0.15,
@@ -41,6 +44,7 @@ CHANNEL_QUALITY: dict[str, dict[str, float]] = {
         "base_retention": 0.37,
         "retention_boost": 0.02,
         "avg_ltv_multiplier": 1.2,
+        "skill_bias": 0.0,
     },
     "YouTube": {
         "channel_prob": 0.10,
@@ -48,12 +52,12 @@ CHANNEL_QUALITY: dict[str, dict[str, float]] = {
         "base_retention": 0.48,
         "retention_boost": 0.15,
         "avg_ltv_multiplier": 2.5,
+        "skill_bias": 0.10,
     },
 }
 
 DEVICE_TYPES = ["iOS", "Android"]
-AGE_GROUPS = ["18-24", "25-34", "35-44", "45+"]
-TRANSACTION_TYPES = ["gem_pack", "pass_royale", "chest_offer", "evo_shards"]
+TRANSACTION_TYPES = ["gem_pack", "pass_royale", "chest_offer", "evo_shards", "gold_offer"]
 
 COUNTRY_ENGAGEMENT: dict[str, float] = {
     "US": 1.10,
@@ -65,6 +69,9 @@ COUNTRY_ENGAGEMENT: dict[str, float] = {
     "KR": 1.20,
 }
 
+TROPHIES_PER_WIN = 30
+TROPHIES_PER_LOSS = 27
+
 
 def generate_acquisition_data(
     n_users: int,
@@ -74,20 +81,21 @@ def generate_acquisition_data(
     observation_period_end: str,
 ) -> pd.DataFrame:
     """
-    Generate a synthetic Clash Royale-style user acquisition dataset.
+    Generate synthetic Clash Royale player profiles with game-accurate progression logic.
 
-    Week-1 battles, arena progression, and clan activity drive retention and
-    90-day IAP (gem spend). Channel mix reflects typical mobile UA spend.
+    New players start at low king level and ~0 trophies. Week-1 battles produce wins/losses,
+    trophy movement, arena placement, card upgrades, clan join, and optional Pass Royale.
+    Retention and 90-day IAP follow from skill loop outcomes (win rate, progression, spend hooks).
 
     Args:
-        n_users: Number of users to generate.
+        n_users: Number of players to generate.
         seed: Random seed for reproducibility.
-        channels: List of acquisition channel names.
-        countries: List of country codes.
+        channels: UA channel names.
+        countries: Country codes.
         observation_period_end: Last date in the observation window (YYYY-MM-DD).
 
     Returns:
-        DataFrame with 15 columns including behavioral features and targets.
+        DataFrame with CR player features and retention/IAP targets.
     """
     rng = np.random.default_rng(seed)
     fake = Faker()
@@ -113,10 +121,6 @@ def generate_acquisition_data(
     ]
 
     device_types = rng.choice(DEVICE_TYPES, size=n_users)
-    age_groups = rng.choice(
-        AGE_GROUPS, size=n_users, p=[0.30, 0.35, 0.25, 0.10]
-    )
-
     cost_per_install = np.array(
         [
             CHANNEL_QUALITY[ch]["cpi_base"] * rng.uniform(0.85, 1.15)
@@ -124,37 +128,76 @@ def generate_acquisition_data(
         ]
     )
 
-    channel_session_boost = np.array(
-        [CHANNEL_QUALITY[ch]["avg_ltv_multiplier"] * 0.15 for ch in acquisition_channels]
-    )
-    country_engagement = np.array(
-        [COUNTRY_ENGAGEMENT[c] for c in country_codes]
-    )
-    device_boost = np.where(device_types == "iOS", 1.08, 1.0)
+    country_engagement = np.array([COUNTRY_ENGAGEMENT[c] for c in country_codes])
+    skill_bias = np.array([CHANNEL_QUALITY[ch]["skill_bias"] for ch in acquisition_channels])
+    device_boost = np.where(device_types == "iOS", 1.06, 1.0)
 
     battle_mean = np.clip(
-        10 + channel_session_boost * 12 + (country_engagement - 1) * 6, 4, 45
+        8 + country_engagement * 4 + (skill_bias + 0.1) * 20,
+        3,
+        55,
     )
     battles_week1 = np.clip(
-        rng.poisson(battle_mean) * device_boost, 1, 50
+        rng.poisson(battle_mean) * device_boost, 1, 60
     ).astype(int)
 
-    playtime_week1 = np.clip(
-        battles_week1 * rng.uniform(0.35, 0.75, size=n_users) + rng.normal(0, 1.5, n_users),
-        0.5,
-        45.0,
+    player_skill = (
+        rng.normal(0.0, 0.35, size=n_users)
+        + skill_bias
+        + (country_engagement - 1.0) * 0.15
     )
-    arena_level = np.clip(
-        1 + (battles_week1 * rng.uniform(0.12, 0.35, size=n_users)).astype(int)
-        + rng.integers(0, 3, size=n_users),
-        1,
-        15,
+    win_rate_week1 = np.clip(
+        0.38 + player_skill * 0.12 + rng.normal(0, 0.04, n_users),
+        0.18,
+        0.82,
     )
-    clan_donations_week1 = np.clip(
-        (battles_week1 * rng.uniform(0.4, 1.8, size=n_users)).astype(int),
+    wins_week1 = np.clip(
+        rng.binomial(battles_week1, win_rate_week1),
         0,
-        200,
+        battles_week1,
+    ).astype(int)
+    losses_week1 = battles_week1 - wins_week1
+
+    trophies_end_week1 = np.clip(
+        wins_week1 * TROPHIES_PER_WIN
+        - losses_week1 * TROPHIES_PER_LOSS
+        + rng.integers(-20, 40, size=n_users),
+        0,
+        4500,
+    ).astype(int)
+    arena_id = np.array([trophies_to_arena(t) for t in trophies_end_week1])
+
+    king_level = np.clip(
+        1
+        + (battles_week1 // 12)
+        + rng.integers(0, 2, size=n_users),
+        1,
+        14,
+    ).astype(int)
+
+    cards_upgraded_week1 = np.clip(
+        (wins_week1 * rng.uniform(0.4, 1.1, size=n_users)).astype(int)
+        + (king_level * rng.integers(0, 3, size=n_users)),
+        0,
+        80,
     )
+
+    clan_join_prob = np.clip(
+        0.12 + (battles_week1 / 60) * 0.45 + win_rate_week1 * 0.25,
+        0.05,
+        0.85,
+    )
+    clan_member = (rng.random(n_users) < clan_join_prob).astype(int)
+
+    pass_prob = np.clip(
+        0.04
+        + (trophies_end_week1 / 4500) * 0.10
+        + win_rate_week1 * 0.06
+        + cards_upgraded_week1 / 80 * 0.08,
+        0.01,
+        0.35,
+    )
+    pass_royale_active = (rng.random(n_users) < pass_prob).astype(int)
 
     retention_boost = np.array(
         [CHANNEL_QUALITY[ch]["retention_boost"] for ch in acquisition_channels]
@@ -162,17 +205,17 @@ def generate_acquisition_data(
     base_retention = np.array(
         [CHANNEL_QUALITY[ch]["base_retention"] for ch in acquisition_channels]
     )
-    # Week-1 battles and arena progression (Clash Royale engagement signals).
     engagement_index = (
-        (battles_week1 / 50.0) * 0.35
-        + (playtime_week1 / 45.0) * 0.20
-        + (arena_level / 15.0) * 0.25
-        + (clan_donations_week1 / 200.0) * 0.10
+        (battles_week1 / 60.0) * 0.22
+        + win_rate_week1 * 0.28
+        + (trophies_end_week1 / 4500.0) * 0.18
+        + (arena_id / 15.0) * 0.10
+        + clan_member * 0.12
+        + pass_royale_active * 0.05
         + retention_boost
-        + (country_engagement - 1.0) * 0.08
-        + (base_retention - 0.40) * 0.35
+        + (base_retention - 0.40) * 0.30
     )
-    retention_prob = 1.0 / (1.0 + np.exp(-12.0 * (engagement_index - 0.42)))
+    retention_prob = 1.0 / (1.0 + np.exp(-10.0 * (engagement_index - 0.38)))
     retention_prob = np.clip(
         retention_prob + rng.normal(0, 0.008, n_users),
         0.01,
@@ -183,22 +226,36 @@ def generate_acquisition_data(
     ltv_multiplier = np.array(
         [CHANNEL_QUALITY[ch]["avg_ltv_multiplier"] for ch in acquisition_channels]
     )
-    channel_ltv_effect = ltv_multiplier * 12.0
+    trophy_wall_spend = np.where(
+        (trophies_end_week1 >= 500) & (trophies_end_week1 <= 1200),
+        12.0,
+        0.0,
+    )
     ltv_day90 = np.clip(
-        battles_week1 * 3.2
-        + playtime_week1 * 2.2
-        + arena_level * 8.5
-        + clan_donations_week1 * 0.45
-        + cost_per_install * 2.0
-        + channel_ltv_effect
-        + retained_day7 * 35.0
-        + rng.normal(0, 5.0, n_users),
-        0.5,
+        pass_royale_active * 62.0
+        + cards_upgraded_week1 * 2.4
+        + trophies_end_week1 * 0.055
+        + king_level * 5.5
+        + trophy_wall_spend
+        + retained_day7 * 32.0
+        + clan_member * 8.0
+        + ltv_multiplier * 12.0
+        + rng.exponential(scale=4.0, size=n_users)
+        + rng.normal(0, 3.0, n_users),
+        0.0,
         500.0,
     )
 
     ltv_rank = pd.Series(ltv_day90).rank(pct=True).to_numpy()
-    purchaser_prob = np.clip(0.05 + ltv_rank * 0.35 + retained_day7 * 0.08, 0, 0.85)
+    purchaser_prob = np.clip(
+        0.04
+        + pass_royale_active * 0.35
+        + ltv_rank * 0.30
+        + retained_day7 * 0.08
+        + (cards_upgraded_week1 / 80) * 0.10,
+        0,
+        0.88,
+    )
     is_purchaser = (rng.random(n_users) < purchaser_prob).astype(int)
 
     roas_90d = np.where(cost_per_install > 0, ltv_day90 / cost_per_install, 0.0)
@@ -210,12 +267,15 @@ def generate_acquisition_data(
             "acquisition_channel": acquisition_channels,
             "country": country_codes,
             "device_type": device_types,
-            "age_group": age_groups,
-            "cost_per_install": np.round(cost_per_install, 2),
+            "king_level": king_level,
+            "trophies_end_week1": trophies_end_week1,
+            "arena_id": arena_id,
             "battles_week1": battles_week1,
-            "playtime_week1": np.round(playtime_week1, 2),
-            "arena_level": arena_level,
-            "clan_donations_week1": clan_donations_week1,
+            "win_rate_week1": np.round(win_rate_week1, 3),
+            "cards_upgraded_week1": cards_upgraded_week1,
+            "clan_member": clan_member,
+            "pass_royale_active": pass_royale_active,
+            "cost_per_install": np.round(cost_per_install, 2),
             "retained_day7": retained_day7,
             "ltv_day90": np.round(ltv_day90, 2),
             "is_purchaser": is_purchaser,
@@ -224,9 +284,12 @@ def generate_acquisition_data(
     )
 
     logger.info(
-        "Generated acquisition data: %d users, retention rate %.1f%%, purchaser rate %.1f%%",
+        "Generated CR player data: %d users, retention %.1f%%, pass rate %.1f%%, "
+        "clan rate %.1f%%, purchaser rate %.1f%%",
         len(df),
         df["retained_day7"].mean() * 100,
+        df["pass_royale_active"].mean() * 100,
+        df["clan_member"].mean() * 100,
         df["is_purchaser"].mean() * 100,
     )
     return df
@@ -238,13 +301,12 @@ def generate_transaction_data(
     observation_period_end: str,
 ) -> pd.DataFrame:
     """
-    Generate purchase history for purchasing users.
+    Generate gem/IAP purchase history aligned with Clash Royale spend patterns.
 
-    Roughly 20% of users make at least one purchase. A subset are repeat buyers
-    to support BG/NBD + Gamma-Gamma modeling in a later phase.
+    Pass Royale buyers get recurring pass transactions; gem packs dominate one-off spend.
 
     Args:
-        acquisition_df: Acquisition dataset containing purchaser flags and LTV.
+        acquisition_df: Acquisition dataset with purchaser flags and IAP totals.
         seed: Random seed for reproducibility.
         observation_period_end: Last date in the observation window (YYYY-MM-DD).
 
@@ -262,10 +324,13 @@ def generate_transaction_data(
 
     for _, user in purchasers.iterrows():
         user_ltv = float(user["ltv_day90"])
+        has_pass = int(user["pass_royale_active"]) == 1
         acquisition_date = datetime.strptime(str(user["acquisition_date"]), "%Y-%m-%d")
         days_available = max((end_date - acquisition_date).days, 7)
 
-        if user_ltv > 40 and rng.random() < 0.45:
+        if has_pass and user_ltv > 25:
+            n_transactions = int(rng.integers(2, 5))
+        elif user_ltv > 45 and rng.random() < 0.40:
             n_transactions = int(rng.integers(2, 6))
         else:
             n_transactions = 1
@@ -279,18 +344,22 @@ def generate_transaction_data(
                 amount = max(round(user_ltv * share, 2), 0.99)
                 remaining_ltv -= amount
 
-            min_offset = min(3 + txn_index * 7, days_available - 1)
+            min_offset = min(2 + txn_index * 10, days_available - 1)
             max_offset = max(min_offset + 1, days_available)
             offset = int(rng.integers(min_offset, max_offset))
             transaction_date = (acquisition_date + timedelta(days=offset)).strftime(
                 "%Y-%m-%d"
             )
-            transaction_type = str(
-                rng.choice(
-                    TRANSACTION_TYPES,
-                    p=[0.50, 0.25, 0.15, 0.10],
+
+            if has_pass and txn_index == 0:
+                transaction_type = "pass_royale"
+            else:
+                transaction_type = str(
+                    rng.choice(
+                        TRANSACTION_TYPES,
+                        p=[0.45, 0.10, 0.20, 0.15, 0.10],
+                    )
                 )
-            )
 
             records.append(
                 {
@@ -314,19 +383,19 @@ def generate_transaction_data(
 
 def validate_correlations(acquisition_df: pd.DataFrame) -> None:
     """
-    Log sanity checks for key business correlations in the acquisition dataset.
+    Log sanity checks for Clash Royale progression and monetization correlations.
 
     Args:
         acquisition_df: Generated acquisition DataFrame.
     """
-    battle_retention_corr = acquisition_df["battles_week1"].corr(
-        acquisition_df["retained_day7"]
-    )
-    battle_ltv_corr = acquisition_df["battles_week1"].corr(acquisition_df["ltv_day90"])
+    win_retention = acquisition_df["win_rate_week1"].corr(acquisition_df["retained_day7"])
+    trophy_ltv = acquisition_df["trophies_end_week1"].corr(acquisition_df["ltv_day90"])
+    pass_ltv = acquisition_df["pass_royale_active"].corr(acquisition_df["ltv_day90"])
     channel_ltv = acquisition_df.groupby("acquisition_channel")["ltv_day90"].mean()
 
-    logger.info("Correlation battles_week1 vs retained_day7: %.3f", battle_retention_corr)
-    logger.info("Correlation battles_week1 vs ltv_day90: %.3f", battle_ltv_corr)
+    logger.info("Correlation win_rate_week1 vs retained_day7: %.3f", win_retention)
+    logger.info("Correlation trophies_end_week1 vs ltv_day90: %.3f", trophy_ltv)
+    logger.info("Correlation pass_royale_active vs ltv_day90: %.3f", pass_ltv)
     logger.info("Average LTV by channel:\n%s", channel_ltv.sort_values(ascending=False))
 
 

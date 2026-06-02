@@ -19,7 +19,7 @@ training:
 
 game:
   title: "Clash Royale UA Optimizer"
-  tagline: "Synthetic player acquisition analytics for mobile strategy games"
+  tagline: "Synthetic player profiles modeled on CR progression and IAP loops"
   currency: "USD"
 
 channels:

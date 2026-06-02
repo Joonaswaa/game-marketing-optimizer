@@ -19,12 +19,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.budget_optimizer import optimize_budget
-from src.preprocessing import FEATURE_COLUMNS
+from src.preprocessing import FEATURE_COLUMNS, trophies_to_arena
 from src.utils import load_bgnbd_models, load_config
 
 logger = logging.getLogger(__name__)
 
-AGE_GROUPS = ["18-24", "25-34", "35-44", "45+"]
 DEVICE_TYPES = ["iOS", "Android"]
 
 CHANNEL_COLORS: dict[str, str] = {
@@ -368,9 +367,9 @@ def load_bgnbd_bundle():
 def page_overview() -> None:
     """Campaign overview with KPIs and channel performance charts."""
     render_hero(
-        "UA Campaign Overview",
-        "Track player installs, gem spend, and ROAS across ad channels — synthetic Clash Royale data.",
-        badge="King's Arena",
+        "Campaign Overview",
+        "Clash Royale UA performance — installs, 90-day IAP, and channel ROAS (synthetic data).",
+        badge="Analytics",
     )
 
     df = load_acquisition_data()
@@ -378,7 +377,7 @@ def page_overview() -> None:
     render_kpi_cards(
         [
             ("Players Acquired", f"{len(df):,}"),
-            ("Avg IAP (90d)", f"${df['ltv_day90'].mean():.2f}"),
+            ("Avg 90d IAP", f"${df['ltv_day90'].mean():.2f}"),
             ("Day-7 Retention", f"{df['retained_day7'].mean():.1%}"),
             ("Total UA Spend", f"${df['cost_per_install'].sum():,.0f}"),
         ]
@@ -469,11 +468,11 @@ def _predict_bgnbd_ltv(channel: str) -> float | None:
 
 
 def page_predictions() -> None:
-    """Player retention and IAP prediction form."""
+    """Player retention and IAP prediction form using Clash Royale week-1 profile."""
     render_hero(
-        "Player Value Predictor",
-        "Forecast Day-7 retention and 90-day gem spend from week-1 battles and arena progress.",
-        badge="Card Machine",
+        "Player Predictions",
+        "Model uses CR progression signals: trophies, king level, win rate, Pass Royale, and clan status.",
+        badge="ML Models",
     )
 
     config = load_config()
@@ -492,32 +491,40 @@ def page_predictions() -> None:
         return
 
     with st.container(border=True):
-        st.markdown("##### New player scout")
+        st.markdown("##### Week-1 player profile")
         with st.form("prediction_form", border=False):
             col1, col2 = st.columns(2, gap="large")
             with col1:
-                st.markdown("**Install source**")
+                st.markdown("**Install & account**")
                 channel = st.selectbox("UA channel", channels)
                 country = st.selectbox("Country", countries)
                 device = st.selectbox("Platform", DEVICE_TYPES)
-                age_group = st.selectbox("Age group", AGE_GROUPS)
-            with col2:
-                st.markdown("**Week 1 — Arena & clan**")
-                battles = st.slider("Battles played", min_value=1, max_value=50, value=12)
-                playtime = st.slider(
-                    "Playtime (hours)", min_value=0.5, max_value=45.0, value=8.0, step=0.5
-                )
-                arena = st.slider("Arena level", min_value=1, max_value=15, value=5)
-                clan_donations = st.slider("Clan card donations", min_value=0, max_value=200, value=15)
+                king_level = st.slider("King level", min_value=1, max_value=14, value=3)
                 cpi = st.slider(
                     "Cost per install ($)", min_value=0.5, max_value=20.0, value=3.0, step=0.1
                 )
+            with col2:
+                st.markdown("**Ladder & economy (week 1)**")
+                battles = st.slider("Ladder battles played", min_value=1, max_value=60, value=15)
+                win_rate = st.slider(
+                    "Win rate", min_value=0.18, max_value=0.82, value=0.52, step=0.01
+                )
+                trophies = st.slider("Trophies (end of week 1)", min_value=0, max_value=4500, value=400)
+                arena = trophies_to_arena(trophies)
+                st.caption(f"Arena **{arena}** (derived from trophies)")
+                cards_upgraded = st.slider("Cards upgraded", min_value=0, max_value=80, value=8)
 
-            has_purchase_history = st.toggle(
-                "Has gem purchase history (BG/NBD comparison)",
+            col3, col4 = st.columns(2)
+            with col3:
+                clan_member = st.checkbox("Joined a clan", value=False)
+            with col4:
+                pass_royale = st.checkbox("Pass Royale active", value=False)
+
+            has_purchase_history = st.checkbox(
+                "Compare BG/NBD (requires prior gem purchases in cohort)",
                 value=False,
             )
-            submitted = st.form_submit_button("Scout player", type="primary", use_container_width=True)
+            submitted = st.form_submit_button("Predict", type="primary", use_container_width=True)
 
     if submitted:
         input_df = pd.DataFrame(
@@ -526,12 +533,15 @@ def page_predictions() -> None:
                     "acquisition_channel": channel,
                     "country": country,
                     "device_type": device,
-                    "age_group": age_group,
-                    "cost_per_install": cpi,
+                    "king_level": king_level,
+                    "trophies_end_week1": trophies,
+                    "arena_id": arena,
                     "battles_week1": battles,
-                    "playtime_week1": playtime,
-                    "arena_level": arena,
-                    "clan_donations_week1": clan_donations,
+                    "win_rate_week1": win_rate,
+                    "cards_upgraded_week1": cards_upgraded,
+                    "clan_member": int(clan_member),
+                    "pass_royale_active": int(pass_royale),
+                    "cost_per_install": cpi,
                 }
             ]
         )
@@ -539,26 +549,30 @@ def page_predictions() -> None:
         retention_prob = float(retention_model.predict_proba(input_df[FEATURE_COLUMNS])[0, 1])
         ltv_estimate = float(ltv_model.predict(input_df[FEATURE_COLUMNS])[0])
 
-        st.markdown("##### XGBoost forecast")
-        m1, m2 = st.columns(2, gap="medium")
+        st.markdown("##### Model output")
+        m1, m2, m3 = st.columns(3, gap="medium")
         with m1:
             st.metric("Day-7 retention", f"{retention_prob:.1%}")
         with m2:
-            st.metric("90-day IAP (gem spend)", f"${ltv_estimate:,.2f}")
+            st.metric("90-day IAP (USD)", f"${ltv_estimate:,.2f}")
+        with m3:
+            st.metric("Arena / trophies", f"Arena {arena} · {trophies:,} 🏆")
 
         st.markdown(
             f"""
             <div class="result-card">
-                <span class="kpi-label">Scout report</span>
+                <span class="kpi-label">Profile summary</span>
                 <span class="kpi-value">
-                    {retention_prob:.0%} retention chance · ${ltv_estimate:,.0f} projected spend
+                    {battles} battles @ {win_rate:.0%} WR · King {king_level} ·
+                    {'clan' if clan_member else 'solo'} ·
+                    {'Pass active' if pass_royale else 'F2P pass'}
                 </span>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-        st.markdown("##### BG/NBD gem spend model")
+        st.markdown("##### BG/NBD IAP comparison")
         if has_purchase_history:
             bgnbd_ltv = _predict_bgnbd_ltv(channel)
             if bgnbd_ltv is None:
@@ -574,13 +588,11 @@ def page_predictions() -> None:
                     delta=f"{diff:+,.2f} vs XGBoost",
                 )
                 st.info(
-                    "BG/NBD uses median gem-purchaser stats for this UA channel. "
-                    "XGBoost uses battles, arena, and clan activity above."
+                    "BG/NBD uses median gem-purchaser RFM for this UA channel. "
+                    "XGBoost uses the full CR player profile above."
                 )
         else:
-            st.info(
-                "Enable **Has gem purchase history** to compare against the BG/NBD model."
-            )
+            st.info("Check **Compare BG/NBD** to show cohort-based IAP from transaction history.")
 
 
 @st.fragment
@@ -686,9 +698,9 @@ def _optimizer_panel(
 def page_optimizer() -> None:
     """Budget allocation optimizer across ad channels."""
     render_hero(
-        "War Chest Allocator",
-        "Split your UA budget across channels to maximize gem-spend ROAS — updates live.",
-        badge="Elixir Trade",
+        "Budget Optimizer",
+        "Maximize expected IAP return across UA channels for Clash Royale campaigns.",
+        badge="Optimization",
     )
 
     config = load_config()
@@ -708,7 +720,7 @@ def main() -> None:
 
     st.set_page_config(
         page_title=game_title,
-        page_icon="⚔️",
+        page_icon="📊",
         layout="wide",
         initial_sidebar_state="expanded",
     )
@@ -718,20 +730,20 @@ def main() -> None:
     with st.sidebar:
         st.markdown(f'<p class="sidebar-brand">{game_title}</p>', unsafe_allow_html=True)
         st.markdown(
-            '<p class="sidebar-tagline">Synthetic CR player data · UA analytics · Gem spend ML</p>',
+            '<p class="sidebar-tagline">Synthetic CR player data · retention & IAP ML · UA budget</p>',
             unsafe_allow_html=True,
         )
         page = st.radio(
             "Navigation",
-            ["UA Campaign Overview", "Player Value Predictor", "War Chest Allocator"],
+            ["Campaign Overview", "Player Predictions", "Budget Optimizer"],
             label_visibility="collapsed",
         )
         st.divider()
         st.caption("Fan project · Not affiliated with Supercell")
 
-    if page == "UA Campaign Overview":
+    if page == "Campaign Overview":
         page_overview()
-    elif page == "Player Value Predictor":
+    elif page == "Player Predictions":
         page_predictions()
     else:
         page_optimizer()

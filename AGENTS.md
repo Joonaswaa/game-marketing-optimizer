@@ -50,9 +50,9 @@ Load only when needed — do not load all at once:
 
 ## Current State (Update This After Each Session!)
 **Last Updated:** June 2, 2026  
-**Working On:** Phase 4 — Push to GitHub + Streamlit Community Cloud  
-**Recently Completed:** Git init, 2 commits on `main` (code + data/models for Cloud), bootstrap re-run  
-**Blocked By:** GitHub remote not set — create public repo and push  
+**Working On:** Phase 4 — Streamlit Community Cloud deploy  
+**Recently Completed:** Pushed to https://github.com/Joonaswaa/game-marketing-optimizer  
+**Blocked By:** Connect app at share.streamlit.io  
 
 ---
 
@@ -89,7 +89,7 @@ Load only when needed — do not load all at once:
 - [x] Deploy prep: `.gitignore`, `scripts/bootstrap_artifacts.py`, `.streamlit/config.toml`
 - [x] Local smoke test: `py -m streamlit run app/streamlit_app.py`
 - [x] Git init + commits (code + force-added data/models on `main`)
-- [ ] **User:** Push to GitHub (public repo) — add remote and push
+- [x] **User:** Push to GitHub (public repo) — https://github.com/Joonaswaa/game-marketing-optimizer
 - [ ] **User:** Deploy on Streamlit Community Cloud (`app/streamlit_app.py`; see README)
 - [ ] **User:** Validate public URL + cold start (after push + force-add artifacts or bootstrap on server)
 

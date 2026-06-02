@@ -5,10 +5,12 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
+from typing import Any
 
 import joblib
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 from lifetimes.utils import summary_data_from_transaction_data
 
@@ -25,10 +27,260 @@ logger = logging.getLogger(__name__)
 AGE_GROUPS = ["18-24", "25-34", "35-44", "45+"]
 DEVICE_TYPES = ["iOS", "Android"]
 
+CHANNEL_COLORS: dict[str, str] = {
+    "TikTok": "#6366F1",
+    "YouTube": "#EF4444",
+    "Instagram": "#EC4899",
+    "Facebook": "#3B82F6",
+    "Google": "#10B981",
+}
+
+PLOTLY_LAYOUT: dict[str, Any] = {
+    "paper_bgcolor": "rgba(0,0,0,0)",
+    "plot_bgcolor": "rgba(0,0,0,0)",
+    "font": {"family": "Inter, sans-serif", "color": "#334155", "size": 13},
+    "margin": {"l": 24, "r": 24, "t": 48, "b": 24},
+    "hovermode": "x unified",
+    "legend": {"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "right", "x": 1},
+}
+
 
 def _resolve_path(relative_path: str) -> Path:
     """Resolve a config path relative to the project root."""
     return PROJECT_ROOT / relative_path
+
+
+def inject_custom_css() -> None:
+    """Inject global styles for a modern, responsive dashboard look."""
+    st.markdown(
+        """
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+        html, body, [class*="css"] {
+            font-family: 'Inter', sans-serif;
+        }
+
+        .main .block-container {
+            padding-top: 1.5rem;
+            padding-bottom: 3rem;
+            max-width: 1180px;
+        }
+
+        .hero-banner {
+            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 45%, #9333ea 100%);
+            border-radius: 20px;
+            padding: 1.75rem 2rem;
+            margin-bottom: 1.75rem;
+            color: #ffffff;
+            box-shadow: 0 20px 40px -12px rgba(79, 70, 229, 0.45);
+        }
+
+        .hero-banner h1 {
+            font-size: 1.85rem;
+            font-weight: 800;
+            margin: 0 0 0.35rem 0;
+            letter-spacing: -0.02em;
+        }
+
+        .hero-banner p {
+            margin: 0;
+            opacity: 0.92;
+            font-size: 1rem;
+            font-weight: 400;
+        }
+
+        .hero-badge {
+            display: inline-block;
+            background: rgba(255,255,255,0.18);
+            border: 1px solid rgba(255,255,255,0.25);
+            border-radius: 999px;
+            padding: 0.25rem 0.75rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        @media (max-width: 900px) {
+            .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        @media (max-width: 520px) {
+            .kpi-grid { grid-template-columns: 1fr; }
+        }
+
+        .kpi-card {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            padding: 1.15rem 1.25rem;
+            box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.06);
+            transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+        }
+
+        .kpi-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 24px -8px rgba(79, 70, 229, 0.25);
+            border-color: #c7d2fe;
+        }
+
+        .kpi-label {
+            display: block;
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.4rem;
+        }
+
+        .kpi-value {
+            display: block;
+            font-size: 1.65rem;
+            font-weight: 800;
+            color: #0f172a;
+            letter-spacing: -0.02em;
+            line-height: 1.1;
+        }
+
+        .section-card {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 18px;
+            padding: 0.25rem 0.5rem 0.5rem;
+            margin-bottom: 1rem;
+            box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+        }
+
+        .result-card {
+            background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%);
+            border: 1px solid #ddd6fe;
+            border-radius: 16px;
+            padding: 1.25rem 1.5rem;
+            margin: 1rem 0;
+        }
+
+        .result-card .kpi-value { color: #5b21b6; }
+
+        div[data-testid="stSidebar"] {
+            background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+        }
+
+        div[data-testid="stSidebar"] .stRadio label {
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 12px;
+            padding: 0.65rem 0.85rem;
+            margin-bottom: 0.45rem;
+            transition: all 0.18s ease;
+            color: #e2e8f0 !important;
+            font-weight: 500;
+        }
+
+        div[data-testid="stSidebar"] .stRadio label:hover {
+            background: rgba(99, 102, 241, 0.25);
+            border-color: rgba(129, 140, 248, 0.5);
+        }
+
+        div[data-testid="stSidebar"] .stRadio div[role="radiogroup"] > label[data-baseweb="radio"] {
+            border: none;
+        }
+
+        div[data-testid="stSidebar"] h1, div[data-testid="stSidebar"] h2,
+        div[data-testid="stSidebar"] h3, div[data-testid="stSidebar"] p,
+        div[data-testid="stSidebar"] span, div[data-testid="stSidebar"] label {
+            color: #f1f5f9 !important;
+        }
+
+        .sidebar-brand {
+            font-size: 1.1rem;
+            font-weight: 800;
+            color: #ffffff !important;
+            margin-bottom: 0.25rem;
+            letter-spacing: -0.02em;
+        }
+
+        .sidebar-tagline {
+            font-size: 0.8rem;
+            color: #94a3b8 !important;
+            margin-bottom: 1.5rem;
+            line-height: 1.4;
+        }
+
+        div.stButton > button[kind="primary"],
+        div.stFormSubmitButton > button {
+            background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
+            border: none !important;
+            border-radius: 12px !important;
+            padding: 0.6rem 1.5rem !important;
+            font-weight: 600 !important;
+            box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4) !important;
+            transition: transform 0.15s ease, box-shadow 0.15s ease !important;
+        }
+
+        div.stButton > button[kind="primary"]:hover,
+        div.stFormSubmitButton > button:hover {
+            transform: translateY(-1px) !important;
+            box-shadow: 0 8px 20px rgba(99, 102, 241, 0.5) !important;
+        }
+
+        div[data-testid="stMetric"] {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 14px;
+            padding: 0.85rem 1rem;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_hero(title: str, subtitle: str, badge: str = "Live dashboard") -> None:
+    """Render a gradient page header."""
+    st.markdown(
+        f"""
+        <div class="hero-banner">
+            <div class="hero-badge">{badge}</div>
+            <h1>{title}</h1>
+            <p>{subtitle}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_kpi_cards(items: list[tuple[str, str]]) -> None:
+    """Render a responsive grid of KPI cards."""
+    cards_html = "".join(
+        f'<div class="kpi-card"><span class="kpi-label">{label}</span>'
+        f'<span class="kpi-value">{value}</span></div>'
+        for label, value in items
+    )
+    st.markdown(f'<div class="kpi-grid">{cards_html}</div>', unsafe_allow_html=True)
+
+
+def style_plotly_fig(fig: go.Figure) -> go.Figure:
+    """Apply consistent modern styling to Plotly figures."""
+    fig.update_layout(**PLOTLY_LAYOUT)
+    fig.update_xaxes(showgrid=True, gridcolor="rgba(148,163,184,0.2)", zeroline=False)
+    fig.update_yaxes(showgrid=True, gridcolor="rgba(148,163,184,0.2)", zeroline=False)
+    return fig
+
+
+def channel_color_map(channels: list[str]) -> dict[str, str]:
+    """Return a color map for the given channels."""
+    return {ch: CHANNEL_COLORS.get(ch, "#64748B") for ch in channels}
 
 
 @st.cache_data
@@ -115,31 +367,42 @@ def load_bgnbd_bundle():
 
 def page_overview() -> None:
     """Campaign overview with KPIs and channel performance charts."""
-    st.title("Campaign Overview")
-    st.caption("High-level performance across all acquisition channels.")
+    render_hero(
+        "Campaign Overview",
+        "High-level performance across all acquisition channels.",
+        badge="Analytics",
+    )
 
     df = load_acquisition_data()
 
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Total Users", f"{len(df):,}")
-    col2.metric("Avg LTV", f"${df['ltv_day90'].mean():.2f}")
-    col3.metric("Day-7 Retention Rate", f"{df['retained_day7'].mean():.1%}")
-    col4.metric("Total Ad Spend", f"${df['cost_per_install'].sum():,.0f}")
+    render_kpi_cards(
+        [
+            ("Total Users", f"{len(df):,}"),
+            ("Avg LTV", f"${df['ltv_day90'].mean():.2f}"),
+            ("Day-7 Retention", f"{df['retained_day7'].mean():.1%}"),
+            ("Total Ad Spend", f"${df['cost_per_install'].sum():,.0f}"),
+        ]
+    )
+
+    chart_col1, chart_col2 = st.columns(2, gap="large")
 
     cpa_df = (
         df.groupby("acquisition_channel", as_index=False)["cost_per_install"]
         .mean()
-        .sort_values("cost_per_install", ascending=False)
+        .sort_values("cost_per_install", ascending=True)
     )
     cpa_fig = px.bar(
         cpa_df,
-        x="acquisition_channel",
-        y="cost_per_install",
+        x="cost_per_install",
+        y="acquisition_channel",
+        orientation="h",
         title="Average CPA by Channel",
         labels={"acquisition_channel": "Channel", "cost_per_install": "CPA ($)"},
-        template="plotly_white",
+        color="acquisition_channel",
+        color_discrete_map=channel_color_map(cpa_df["acquisition_channel"].tolist()),
     )
-    st.plotly_chart(cpa_fig, use_container_width=True)
+    cpa_fig.update_traces(marker_line_width=0, opacity=0.92)
+    style_plotly_fig(cpa_fig)
 
     roas_df = df.copy()
     roas_df["acquisition_date"] = pd.to_datetime(roas_df["acquisition_date"])
@@ -155,12 +418,20 @@ def page_overview() -> None:
         x="month",
         y="roas",
         color="acquisition_channel",
-        title="ROAS Trend Over Time by Channel",
+        title="ROAS Trend Over Time",
         labels={"month": "Month", "roas": "ROAS", "acquisition_channel": "Channel"},
-        template="plotly_white",
+        color_discrete_map=channel_color_map(
+            roas_trend["acquisition_channel"].unique().tolist()
+        ),
         markers=True,
     )
-    st.plotly_chart(roas_fig, use_container_width=True)
+    roas_fig.update_traces(line=dict(width=2.5), marker=dict(size=6))
+    style_plotly_fig(roas_fig)
+
+    with chart_col1:
+        st.plotly_chart(cpa_fig, use_container_width=True)
+    with chart_col2:
+        st.plotly_chart(roas_fig, use_container_width=True)
 
 
 def _predict_bgnbd_ltv(channel: str) -> float | None:
@@ -199,8 +470,11 @@ def _predict_bgnbd_ltv(channel: str) -> float | None:
 
 def page_predictions() -> None:
     """Player retention and LTV prediction form."""
-    st.title("Player Predictions")
-    st.caption("Predict Day-7 retention and 90-day LTV for a new player profile.")
+    render_hero(
+        "Player Predictions",
+        "Predict Day-7 retention and 90-day LTV for a new player profile.",
+        badge="ML Models",
+    )
 
     config = load_config()
     channels = config["channels"]
@@ -217,31 +491,33 @@ def page_predictions() -> None:
         )
         return
 
-    with st.form("prediction_form"):
-        col1, col2 = st.columns(2)
-        with col1:
-            channel = st.selectbox("Acquisition Channel", channels)
-            country = st.selectbox("Country", countries)
-            device = st.selectbox("Device Type", DEVICE_TYPES)
-            age_group = st.selectbox("Age Group", AGE_GROUPS)
-        with col2:
-            sessions = st.number_input("Sessions (Week 1)", min_value=1, max_value=30, value=10)
-            playtime = st.number_input(
-                "Playtime (Week 1, hours)", min_value=0.5, max_value=45.0, value=8.0, step=0.5
-            )
-            levels = st.number_input("Levels Completed", min_value=0, max_value=120, value=15)
-            social = st.number_input(
-                "Social Interactions", min_value=0, max_value=80, value=10
-            )
-            cpi = st.number_input(
-                "Cost Per Install ($)", min_value=0.5, max_value=20.0, value=3.0, step=0.1
-            )
+    with st.container(border=True):
+        st.markdown("##### Player profile")
+        with st.form("prediction_form", border=False):
+            col1, col2 = st.columns(2, gap="large")
+            with col1:
+                st.markdown("**Acquisition**")
+                channel = st.selectbox("Channel", channels)
+                country = st.selectbox("Country", countries)
+                device = st.selectbox("Device", DEVICE_TYPES)
+                age_group = st.selectbox("Age group", AGE_GROUPS)
+            with col2:
+                st.markdown("**Week 1 engagement**")
+                sessions = st.slider("Sessions", min_value=1, max_value=30, value=10)
+                playtime = st.slider(
+                    "Playtime (hours)", min_value=0.5, max_value=45.0, value=8.0, step=0.5
+                )
+                levels = st.slider("Levels completed", min_value=0, max_value=120, value=15)
+                social = st.slider("Social interactions", min_value=0, max_value=80, value=10)
+                cpi = st.slider(
+                    "Cost per install ($)", min_value=0.5, max_value=20.0, value=3.0, step=0.1
+                )
 
-        has_purchase_history = st.checkbox(
-            "Include purchase history (enables BG/NBD comparison)",
-            value=False,
-        )
-        submitted = st.form_submit_button("Predict")
+            has_purchase_history = st.toggle(
+                "Include purchase history (BG/NBD comparison)",
+                value=False,
+            )
+            submitted = st.form_submit_button("Run prediction", type="primary", use_container_width=True)
 
     if submitted:
         input_df = pd.DataFrame(
@@ -263,12 +539,26 @@ def page_predictions() -> None:
         retention_prob = float(retention_model.predict_proba(input_df[FEATURE_COLUMNS])[0, 1])
         ltv_estimate = float(ltv_model.predict(input_df[FEATURE_COLUMNS])[0])
 
-        st.subheader("XGBoost Predictions")
-        m1, m2 = st.columns(2)
-        m1.metric("Day-7 Retention Probability", f"{retention_prob:.1%}")
-        m2.metric("90-Day LTV Estimate", f"${ltv_estimate:,.2f}")
+        st.markdown("##### XGBoost predictions")
+        m1, m2 = st.columns(2, gap="medium")
+        with m1:
+            st.metric("Day-7 retention", f"{retention_prob:.1%}")
+        with m2:
+            st.metric("90-day LTV", f"${ltv_estimate:,.2f}")
 
-        st.subheader("BG/NBD LTV Comparison")
+        st.markdown(
+            f"""
+            <div class="result-card">
+                <span class="kpi-label">Combined insight</span>
+                <span class="kpi-value">
+                    {retention_prob:.0%} likely to retain · ${ltv_estimate:,.0f} expected value
+                </span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        st.markdown("##### BG/NBD comparison")
         if has_purchase_history:
             bgnbd_ltv = _predict_bgnbd_ltv(channel)
             if bgnbd_ltv is None:
@@ -279,7 +569,7 @@ def page_predictions() -> None:
             else:
                 diff = ltv_estimate - bgnbd_ltv
                 st.metric(
-                    "BG/NBD 90-Day LTV (channel median purchaser)",
+                    "BG/NBD 90-day LTV",
                     f"${bgnbd_ltv:,.2f}",
                     delta=f"{diff:+,.2f} vs XGBoost",
                 )
@@ -289,35 +579,27 @@ def page_predictions() -> None:
                 )
         else:
             st.info(
-                "Enable **Include purchase history** to compare against the BG/NBD model. "
-                "BG/NBD applies to users with transaction history."
+                "Toggle **Include purchase history** to compare against the BG/NBD model."
             )
 
 
-def page_optimizer() -> None:
-    """Budget allocation optimizer across ad channels."""
-    st.title("Budget Optimizer")
-    st.caption("Allocate spend across channels to maximize expected return.")
-
-    config = load_config()
-    channels = config["channels"]
-    df = load_acquisition_data()
-
-    predicted_roas = (
-        df.groupby("acquisition_channel")["roas_90d"].mean().to_dict()
-    )
-
-    st.subheader("Inputs")
+@st.fragment
+def _optimizer_panel(
+    channels: list[str],
+    predicted_roas: dict[str, float],
+) -> None:
+    """Reactive budget optimizer panel — reruns on widget changes."""
+    st.markdown("##### Budget & constraints")
     total_budget = st.slider(
-        "Total Budget ($)",
+        "Total budget ($)",
         min_value=1_000,
         max_value=1_000_000,
         value=100_000,
         step=1_000,
     )
 
-    st.write("Minimum spend per channel")
-    min_cols = st.columns(len(channels))
+    st.caption("Minimum spend per channel")
+    min_cols = st.columns(len(channels), gap="small")
     min_spends: dict[str, float] = {}
     for col, channel in zip(min_cols, channels):
         with col:
@@ -332,48 +614,88 @@ def page_optimizer() -> None:
                 )
             )
 
-    st.subheader("Predicted ROAS by Channel")
-    roas_display = pd.DataFrame(
+    roas_df = pd.DataFrame(
         {"Channel": channels, "Predicted ROAS": [predicted_roas[ch] for ch in channels]}
     )
-    st.dataframe(roas_display, use_container_width=True, hide_index=True)
+    st.dataframe(
+        roas_df.style.background_gradient(subset=["Predicted ROAS"], cmap="Purples"),
+        use_container_width=True,
+        hide_index=True,
+    )
 
-    if st.button("Optimize"):
-        try:
-            result = optimize_budget(total_budget, min_spends, predicted_roas)
-        except ValueError as exc:
-            st.error(str(exc))
-            return
+    try:
+        result = optimize_budget(total_budget, min_spends, predicted_roas)
+    except ValueError as exc:
+        st.error(str(exc))
+        return
 
-        st.success(f"Total Expected Return: ${result['total_expected_return']:,.2f}")
+    st.markdown(
+        f"""
+        <div class="result-card">
+            <span class="kpi-label">Total expected return</span>
+            <span class="kpi-value">${result['total_expected_return']:,.0f}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-        allocation_df = pd.DataFrame(
-            {
-                "Channel": channels,
-                "Allocation ($)": [result["allocations"][ch] for ch in channels],
-                "Share (%)": [result["percentages"][ch] for ch in channels],
-                "Expected Return ($)": [result["expected_returns"][ch] for ch in channels],
-            }
-        )
-        st.dataframe(allocation_df, use_container_width=True, hide_index=True)
+    allocation_df = pd.DataFrame(
+        {
+            "Channel": channels,
+            "Allocation ($)": [result["allocations"][ch] for ch in channels],
+            "Share (%)": [result["percentages"][ch] for ch in channels],
+            "Expected Return ($)": [result["expected_returns"][ch] for ch in channels],
+        }
+    )
+    st.dataframe(allocation_df, use_container_width=True, hide_index=True)
 
-        pie_fig = px.pie(
-            allocation_df,
-            names="Channel",
-            values="Allocation ($)",
-            title="Budget Allocation by Channel",
-            template="plotly_white",
-        )
+    chart_col1, chart_col2 = st.columns(2, gap="large")
+
+    pie_fig = px.pie(
+        allocation_df,
+        names="Channel",
+        values="Allocation ($)",
+        title="Budget allocation",
+        color="Channel",
+        color_discrete_map=channel_color_map(channels),
+        hole=0.45,
+    )
+    pie_fig.update_traces(textposition="inside", textinfo="percent+label")
+    style_plotly_fig(pie_fig)
+
+    bar_fig = px.bar(
+        allocation_df,
+        x="Channel",
+        y="Expected Return ($)",
+        title="Expected return by channel",
+        color="Channel",
+        color_discrete_map=channel_color_map(channels),
+    )
+    bar_fig.update_traces(marker_line_width=0, opacity=0.92)
+    style_plotly_fig(bar_fig)
+
+    with chart_col1:
         st.plotly_chart(pie_fig, use_container_width=True)
-
-        bar_fig = px.bar(
-            allocation_df,
-            x="Channel",
-            y="Expected Return ($)",
-            title="Expected Return by Channel",
-            template="plotly_white",
-        )
+    with chart_col2:
         st.plotly_chart(bar_fig, use_container_width=True)
+
+
+def page_optimizer() -> None:
+    """Budget allocation optimizer across ad channels."""
+    render_hero(
+        "Budget Optimizer",
+        "Allocate spend across channels to maximize expected return — updates live.",
+        badge="Optimization",
+    )
+
+    config = load_config()
+    channels = config["channels"]
+    df = load_acquisition_data()
+
+    predicted_roas = df.groupby("acquisition_channel")["roas_90d"].mean().to_dict()
+
+    with st.container(border=True):
+        _optimizer_panel(channels, predicted_roas)
 
 
 def main() -> None:
@@ -382,14 +704,24 @@ def main() -> None:
         page_title="Game Marketing Campaign Optimizer",
         page_icon="📊",
         layout="wide",
+        initial_sidebar_state="expanded",
     )
 
-    st.sidebar.title("Navigation")
-    page = st.sidebar.radio(
-        "Go to",
-        ["Campaign Overview", "Player Predictions", "Budget Optimizer"],
-        label_visibility="collapsed",
-    )
+    inject_custom_css()
+
+    with st.sidebar:
+        st.markdown('<p class="sidebar-brand">Game Marketing Optimizer</p>', unsafe_allow_html=True)
+        st.markdown(
+            '<p class="sidebar-tagline">Campaign analytics · ML predictions · Budget allocation</p>',
+            unsafe_allow_html=True,
+        )
+        page = st.radio(
+            "Navigation",
+            ["Campaign Overview", "Player Predictions", "Budget Optimizer"],
+            label_visibility="collapsed",
+        )
+        st.divider()
+        st.caption("Built with XGBoost · lifetimes · SciPy")
 
     if page == "Campaign Overview":
         page_overview()

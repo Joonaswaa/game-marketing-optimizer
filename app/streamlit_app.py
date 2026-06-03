@@ -340,13 +340,8 @@ def inject_custom_css() -> None:
     )
 
 
-def render_app_chrome() -> str:
-    """
-    Render header and horizontal nav inside one chrome card.
-
-    Returns:
-        Selected navigation option string.
-    """
+def render_static_header() -> None:
+    """Render app title chrome once; stays mounted across tab switches."""
     with st.container(border=True):
         st.markdown(
             f"""
@@ -358,7 +353,36 @@ def render_app_chrome() -> str:
             """,
             unsafe_allow_html=True,
         )
-        return render_top_navigation()
+
+
+@st.fragment
+def render_app_router() -> None:
+    """
+    Tab navigation and page body — fragment rerun keeps tab switches fast.
+
+    Only this block re-executes when the user changes tabs, not CSS or the header.
+    """
+    with st.container(border=True):
+        selected = render_top_navigation()
+
+    with st.container(border=True):
+        _dispatch_page(selected)
+
+
+def _dispatch_page(selected: str) -> None:
+    """Route to the active dashboard page."""
+    if selected == "Campaign Overview":
+        page_overview()
+    elif selected == "Player Predictions":
+        page_predictions()
+    elif selected == "Churn Prediction":
+        page_churn_prediction()
+    elif selected == "Cohort Analysis":
+        page_cohort_analysis()
+    elif selected == "Budget Optimizer":
+        page_optimizer()
+    else:
+        page_methodology()
 
 
 def render_top_navigation() -> str:
@@ -465,10 +489,18 @@ def churn_risk_label(probability: float) -> str:
     return "High"
 
 
+@st.cache_data(ttl=300)
 def _acquisition_data_mtime() -> float:
     """File modification time used to invalidate Streamlit data cache."""
     config = load_config()
     return _resolve_path(config["data"]["acquisition_path"]).stat().st_mtime
+
+
+@st.cache_data(ttl=300)
+def _transaction_data_mtime() -> float:
+    """Transaction CSV mtime for cache invalidation."""
+    config = load_config()
+    return _resolve_path(config["data"]["transaction_path"]).stat().st_mtime
 
 
 def _churn_model_mtime() -> float:
@@ -478,15 +510,15 @@ def _churn_model_mtime() -> float:
     return path.stat().st_mtime if path.exists() else 0.0
 
 
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def load_acquisition_data(data_mtime: float) -> pd.DataFrame:
     """Load acquisition CSV with caching (refreshes when the file changes)."""
     config = load_config()
     return pd.read_csv(_resolve_path(config["data"]["acquisition_path"]))
 
 
-@st.cache_data
-def load_transaction_data() -> pd.DataFrame:
+@st.cache_data(show_spinner=False)
+def load_transaction_data(txn_mtime: float) -> pd.DataFrame:
     """Load transaction CSV with caching."""
     config = load_config()
     df = pd.read_csv(_resolve_path(config["data"]["transaction_path"]))
@@ -494,8 +526,81 @@ def load_transaction_data() -> pd.DataFrame:
     return df
 
 
-@st.cache_data
-def load_channel_rfm_profiles() -> pd.DataFrame:
+@st.cache_data(show_spinner=False)
+def compute_overview_aggregates(data_mtime: float) -> dict[str, Any]:
+    """
+    Precompute Campaign Overview KPIs and chart source tables.
+
+    Args:
+        data_mtime: Acquisition CSV modification time for cache keying.
+
+    Returns:
+        Dict with kpi_cards, cpa_df, and roas_trend DataFrames.
+    """
+    df = load_acquisition_data(data_mtime)
+    roas_df = df.copy()
+    roas_df["acquisition_date"] = pd.to_datetime(roas_df["acquisition_date"])
+    roas_df["month"] = roas_df["acquisition_date"].dt.to_period("M").astype(str)
+    roas_trend = (
+        roas_df.groupby(["month", "acquisition_channel"], as_index=False)
+        .agg(revenue=("ltv_day90", "sum"), spend=("cost_per_install", "sum"))
+    )
+    roas_trend["roas"] = roas_trend["revenue"] / roas_trend["spend"]
+
+    return {
+        "kpi_cards": [
+            ("Players Acquired", format_count_k(len(df))),
+            ("Avg 90d IAP", format_usd_k(df["ltv_day90"].mean())),
+            ("Day-7 Retention", f"{df['retained_day7'].mean():.1%}"),
+            ("Total UA Spend", format_usd_k(df["cost_per_install"].sum())),
+        ],
+        "cpa_df": (
+            df.groupby("acquisition_channel", as_index=False)["cost_per_install"]
+            .mean()
+            .sort_values("cost_per_install", ascending=True)
+        ),
+        "roas_trend": roas_trend,
+    }
+
+
+@st.cache_data(show_spinner=False)
+def compute_cohort_outputs(data_mtime: float) -> tuple[pd.DataFrame, dict[str, float], pd.DataFrame]:
+    """
+    Precompute cohort retention matrix and summary metrics.
+
+    Args:
+        data_mtime: Acquisition CSV modification time for cache keying.
+
+    Returns:
+        Tuple of (retention_matrix, average_metrics, retention_curve_df).
+    """
+    df = load_acquisition_data(data_mtime)
+    cohort_df = prepare_cohort_frame(df)
+    retention_matrix = build_retention_matrix(cohort_df)
+    averages = average_retention_metrics(retention_matrix)
+    curve_df = retention_curve_averages(retention_matrix)
+    return retention_matrix, averages, curve_df
+
+
+@st.cache_data(show_spinner=False)
+def compute_channel_roas_stats(data_mtime: float) -> tuple[dict[str, float], dict[str, float]]:
+    """
+    Precompute per-channel ROAS mean and std for the budget optimizer.
+
+    Args:
+        data_mtime: Acquisition CSV modification time for cache keying.
+
+    Returns:
+        Tuple of (mean ROAS by channel, std ROAS by channel).
+    """
+    df = load_acquisition_data(data_mtime)
+    predicted_roas = df.groupby("acquisition_channel")["roas_90d"].mean().to_dict()
+    roas_std = df.groupby("acquisition_channel")["roas_90d"].std().fillna(0).to_dict()
+    return predicted_roas, roas_std
+
+
+@st.cache_data(show_spinner=False)
+def load_channel_rfm_profiles(data_mtime: float, txn_mtime: float) -> pd.DataFrame:
     """
     Build channel-level median RFM profiles for BG/NBD predictions.
 
@@ -503,8 +608,8 @@ def load_channel_rfm_profiles() -> pd.DataFrame:
         DataFrame indexed by acquisition_channel with median RFM metrics.
     """
     config = load_config()
-    transactions = load_transaction_data()
-    acquisition = load_acquisition_data(_acquisition_data_mtime())
+    transactions = load_transaction_data(txn_mtime)
+    acquisition = load_acquisition_data(data_mtime)
 
     try:
         from lifetimes.utils import summary_data_from_transaction_data
@@ -611,24 +716,14 @@ def page_overview() -> None:
         """,
     )
 
-    df = load_acquisition_data(_acquisition_data_mtime())
+    data_mtime = _acquisition_data_mtime()
+    overview = compute_overview_aggregates(data_mtime)
 
-    render_kpi_cards(
-        [
-            ("Players Acquired", format_count_k(len(df))),
-            ("Avg 90d IAP", format_usd_k(df["ltv_day90"].mean())),
-            ("Day-7 Retention", f"{df['retained_day7'].mean():.1%}"),
-            ("Total UA Spend", format_usd_k(df["cost_per_install"].sum())),
-        ]
-    )
+    render_kpi_cards(overview["kpi_cards"])
 
     chart_col1, chart_col2 = st.columns(2, gap="large")
 
-    cpa_df = (
-        df.groupby("acquisition_channel", as_index=False)["cost_per_install"]
-        .mean()
-        .sort_values("cost_per_install", ascending=True)
-    )
+    cpa_df = overview["cpa_df"]
     cpa_fig = px.bar(
         cpa_df,
         x="cost_per_install",
@@ -642,15 +737,7 @@ def page_overview() -> None:
     cpa_fig.update_traces(marker_line_width=0, opacity=0.92)
     style_plotly_fig(cpa_fig)
 
-    roas_df = df.copy()
-    roas_df["acquisition_date"] = pd.to_datetime(roas_df["acquisition_date"])
-    roas_df["month"] = roas_df["acquisition_date"].dt.to_period("M").astype(str)
-    roas_trend = (
-        roas_df.groupby(["month", "acquisition_channel"], as_index=False)
-        .agg(revenue=("ltv_day90", "sum"), spend=("cost_per_install", "sum"))
-    )
-    roas_trend["roas"] = roas_trend["revenue"] / roas_trend["spend"]
-
+    roas_trend = overview["roas_trend"]
     roas_fig = px.line(
         roas_trend,
         x="month",
@@ -688,7 +775,9 @@ def _predict_bgnbd_ltv(channel: str) -> float | None:
 
     bgf, ggf = bundle
     try:
-        profiles = load_channel_rfm_profiles()
+        data_mtime = _acquisition_data_mtime()
+        txn_mtime = _transaction_data_mtime()
+        profiles = load_channel_rfm_profiles(data_mtime, txn_mtime)
     except ImportError:
         return None
     channel_profile = profiles[profiles["acquisition_channel"] == channel]
@@ -1009,10 +1098,8 @@ def page_cohort_analysis() -> None:
         """,
     )
 
-    df = load_acquisition_data(_acquisition_data_mtime())
-    cohort_df = prepare_cohort_frame(df)
-    retention_matrix = build_retention_matrix(cohort_df)
-    averages = average_retention_metrics(retention_matrix)
+    data_mtime = _acquisition_data_mtime()
+    retention_matrix, averages, curve_df = compute_cohort_outputs(data_mtime)
 
     st.markdown("##### Cohort summary")
     s1, s2, s3 = st.columns(3, gap="medium")
@@ -1034,7 +1121,6 @@ def page_cohort_analysis() -> None:
     style_plotly_fig(heatmap_fig)
     st.plotly_chart(heatmap_fig, use_container_width=True)
 
-    curve_df = retention_curve_averages(retention_matrix)
     curve_fig = px.line(
         curve_df,
         x="day_label",
@@ -1287,10 +1373,8 @@ def page_optimizer() -> None:
 
     config = load_config()
     channels = config["channels"]
-    df = load_acquisition_data(_acquisition_data_mtime())
-
-    predicted_roas = df.groupby("acquisition_channel")["roas_90d"].mean().to_dict()
-    roas_std = df.groupby("acquisition_channel")["roas_90d"].std().fillna(0).to_dict()
+    data_mtime = _acquisition_data_mtime()
+    predicted_roas, roas_std = compute_channel_roas_stats(data_mtime)
     opt_cfg = config.get("optimizer", {})
     default_sat = float(opt_cfg.get("default_saturation", 25000))
     saturation_scales = {
@@ -1429,22 +1513,17 @@ def _run_app() -> None:
         initial_sidebar_state="collapsed",
     )
 
-    inject_custom_css()
-    selected = render_app_chrome()
+    if not st.session_state.get("_css_injected"):
+        inject_custom_css()
+        st.session_state["_css_injected"] = True
 
-    with st.container(border=True):
-        if selected == "Campaign Overview":
-            page_overview()
-        elif selected == "Player Predictions":
-            page_predictions()
-        elif selected == "Churn Prediction":
-            page_churn_prediction()
-        elif selected == "Cohort Analysis":
-            page_cohort_analysis()
-        elif selected == "Budget Optimizer":
-            page_optimizer()
-        else:
-            page_methodology()
+    if not st.session_state.get("_data_warmed"):
+        warm_mtime = _acquisition_data_mtime()
+        load_acquisition_data(warm_mtime)
+        st.session_state["_data_warmed"] = True
+
+    render_static_header()
+    render_app_router()
 
 
 main()

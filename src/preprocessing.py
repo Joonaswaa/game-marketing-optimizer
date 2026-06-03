@@ -3,6 +3,7 @@
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OrdinalEncoder, StandardScaler
 
+from churn_features import CHURN_FEATURE_COLUMNS
 from features import CATEGORICAL_FEATURES, NUMERIC_FEATURES
 
 FEATURE_COLUMNS = CATEGORICAL_FEATURES + NUMERIC_FEATURES
@@ -29,4 +30,16 @@ def build_preprocessor() -> ColumnTransformer:
             ),
             ("num", StandardScaler(), NUMERIC_FEATURES),
         ]
+    )
+
+
+def build_churn_preprocessor() -> ColumnTransformer:
+    """
+    Build a scaler-only preprocessor for churn model numeric features.
+
+    Returns:
+        Fitted-ready ColumnTransformer for CHURN_FEATURE_COLUMNS.
+    """
+    return ColumnTransformer(
+        transformers=[("num", StandardScaler(), CHURN_FEATURE_COLUMNS)],
     )

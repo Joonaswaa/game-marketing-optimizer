@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -17,7 +18,15 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+from streamlit_option_menu import option_menu
 
+from src.cohort_analysis import (
+    average_retention_metrics,
+    build_retention_matrix,
+    prepare_cohort_frame,
+    retention_curve_averages,
+)
+from src.churn_features import CHURN_FEATURE_COLUMNS
 from src.features import FEATURE_COLUMNS, trophies_to_arena
 from src.utils import load_bgnbd_models, load_config
 
@@ -32,6 +41,28 @@ CHANNEL_COLORS: dict[str, str] = {
     "Facebook": "#3B82F6",
     "Google": "#10B981",
 }
+
+APP_TITLE = "UA Optimizer"
+APP_TAGLINE = (
+    "Synthetic Clash Royale player data · retention & IAP ML · UA budget optimization"
+)
+
+NAV_OPTIONS: list[str] = [
+    "Campaign Overview",
+    "Player Predictions",
+    "Churn Prediction",
+    "Cohort Analysis",
+    "Budget Optimizer",
+    "Metodologia & Info",
+]
+NAV_ICONS: list[str] = [
+    "bar-chart",
+    "person-badge",
+    "person-dash",
+    "grid-3x3-gap",
+    "wallet2",
+    "info-circle",
+]
 
 PLOTLY_LAYOUT: dict[str, Any] = {
     "paper_bgcolor": "rgba(0,0,0,0)",
@@ -92,46 +123,123 @@ def inject_custom_css() -> None:
             font-family: 'Inter', sans-serif;
         }
 
+        section[data-testid="stSidebar"] {
+            display: none;
+        }
+        [data-testid="collapsedControl"] {
+            display: none;
+        }
+
         .main .block-container {
-            padding-top: 1.5rem;
-            padding-bottom: 3rem;
-            max-width: 1180px;
+            padding-top: 1rem;
+            padding-bottom: 2.5rem;
+            max-width: 1280px;
+            background: #f1f5f9;
+        }
+
+        /* Chrome: header + tabs in one card; page body in another */
+        div[data-testid="stVerticalBlockBorderWrapper"] {
+            background: #ffffff;
+            border-color: #e2e8f0 !important;
+            border-radius: 14px !important;
+            box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+            padding: 0.35rem 0.5rem 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .app-shell-header h1 {
+            font-size: 1.65rem;
+            font-weight: 800;
+            color: #0f172a;
+            margin: 0 0 0.2rem 0;
+            letter-spacing: -0.03em;
+        }
+
+        .app-shell-header .app-tagline {
+            color: #64748b;
+            font-size: 0.9rem;
+            margin: 0 0 0.75rem 0;
+            line-height: 1.45;
+        }
+
+        .app-shell-nav-divider {
+            height: 1px;
+            background: #e2e8f0;
+            margin: 0 0 0.5rem 0;
+        }
+
+        .page-header {
+            margin: 0 0 1rem 0;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .page-header h2 {
+            font-size: 1.35rem;
+            font-weight: 700;
+            color: #1e3a8a;
+            margin: 0 0 0.25rem 0;
+        }
+
+        .page-header p {
+            margin: 0;
+            color: #64748b;
+            font-size: 0.92rem;
         }
 
         .hero-banner {
-            background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 40%, #d97706 100%);
-            border-radius: 20px;
-            padding: 1.75rem 2rem;
-            margin-bottom: 1.75rem;
+            background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 55%, #d97706 100%);
+            border-radius: 12px;
+            padding: 0.9rem 1.25rem;
+            margin-bottom: 1rem;
             color: #ffffff;
-            box-shadow: 0 20px 40px -12px rgba(30, 58, 138, 0.45);
+            box-shadow: 0 8px 24px -8px rgba(30, 58, 138, 0.35);
         }
 
         .hero-banner h1 {
-            font-size: 1.85rem;
-            font-weight: 800;
-            margin: 0 0 0.35rem 0;
+            font-size: 1.25rem;
+            font-weight: 700;
+            margin: 0 0 0.2rem 0;
             letter-spacing: -0.02em;
         }
 
         .hero-banner p {
             margin: 0;
             opacity: 0.92;
-            font-size: 1rem;
+            font-size: 0.88rem;
             font-weight: 400;
         }
 
         .hero-badge {
-            display: inline-block;
-            background: rgba(255,255,255,0.18);
-            border: 1px solid rgba(255,255,255,0.25);
+            display: none;
+        }
+
+        .info-section-title {
+            font-size: 1rem;
+            font-weight: 700;
+            color: #1e3a8a;
+            margin: 0 0 0.5rem 0;
+        }
+
+        .pipeline-step {
+            display: flex;
+            gap: 0.75rem;
+            align-items: flex-start;
+            margin-bottom: 0.65rem;
+        }
+
+        .pipeline-num {
+            flex-shrink: 0;
+            width: 1.6rem;
+            height: 1.6rem;
             border-radius: 999px;
-            padding: 0.25rem 0.75rem;
-            font-size: 0.75rem;
-            font-weight: 600;
-            margin-bottom: 0.75rem;
-            letter-spacing: 0.04em;
-            text-transform: uppercase;
+            background: #eff6ff;
+            color: #2563eb;
+            font-size: 0.8rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .kpi-grid {
@@ -202,51 +310,6 @@ def inject_custom_css() -> None:
 
         .result-card .kpi-value { color: #b45309; }
 
-        div[data-testid="stSidebar"] {
-            background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
-        }
-
-        div[data-testid="stSidebar"] .stRadio label {
-            background: rgba(255,255,255,0.06);
-            border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 12px;
-            padding: 0.65rem 0.85rem;
-            margin-bottom: 0.45rem;
-            transition: all 0.18s ease;
-            color: #e2e8f0 !important;
-            font-weight: 500;
-        }
-
-        div[data-testid="stSidebar"] .stRadio label:hover {
-            background: rgba(99, 102, 241, 0.25);
-            border-color: rgba(129, 140, 248, 0.5);
-        }
-
-        div[data-testid="stSidebar"] .stRadio div[role="radiogroup"] > label[data-baseweb="radio"] {
-            border: none;
-        }
-
-        div[data-testid="stSidebar"] h1, div[data-testid="stSidebar"] h2,
-        div[data-testid="stSidebar"] h3, div[data-testid="stSidebar"] p,
-        div[data-testid="stSidebar"] span, div[data-testid="stSidebar"] label {
-            color: #f1f5f9 !important;
-        }
-
-        .sidebar-brand {
-            font-size: 1.1rem;
-            font-weight: 800;
-            color: #ffffff !important;
-            margin-bottom: 0.25rem;
-            letter-spacing: -0.02em;
-        }
-
-        .sidebar-tagline {
-            font-size: 0.8rem;
-            color: #94a3b8 !important;
-            margin-bottom: 1.5rem;
-            line-height: 1.4;
-        }
-
         div.stButton > button[kind="primary"],
         div.stFormSubmitButton > button {
             background: linear-gradient(135deg, #2563eb, #d97706) !important;
@@ -277,18 +340,89 @@ def inject_custom_css() -> None:
     )
 
 
-def render_hero(title: str, subtitle: str, badge: str = "Live dashboard") -> None:
-    """Render a gradient page header."""
+def render_app_chrome() -> str:
+    """
+    Render header and horizontal nav inside one chrome card.
+
+    Returns:
+        Selected navigation option string.
+    """
+    with st.container(border=True):
+        st.markdown(
+            f"""
+            <div class="app-shell-header">
+                <h1>{APP_TITLE}</h1>
+                <p class="app-tagline">{APP_TAGLINE}</p>
+            </div>
+            <div class="app-shell-nav-divider"></div>
+            """,
+            unsafe_allow_html=True,
+        )
+        return render_top_navigation()
+
+
+def render_top_navigation() -> str:
+    """
+    Render horizontal navbar and return the selected page label.
+
+    Returns:
+        Selected navigation option string.
+    """
+    return option_menu(
+        menu_title=None,
+        options=NAV_OPTIONS,
+        icons=NAV_ICONS,
+        menu_icon="cast",
+        default_index=0,
+        orientation="horizontal",
+        styles={
+            "container": {
+                "padding": "0.25rem 0.5rem!important",
+                "background-color": "#f8fafc",
+                "border-radius": "10px",
+                "margin": "0!important",
+            },
+            "icon": {"font-size": "15px", "color": "#475569"},
+            "nav-link": {
+                "font-size": "14px",
+                "text-align": "center",
+                "margin": "0 2px",
+                "padding": "8px 12px",
+                "border-radius": "8px",
+                "--hover-color": "#e2e8f0",
+            },
+            "nav-link-selected": {
+                "background-color": "#2563eb",
+                "color": "#ffffff",
+                "font-weight": "600",
+            },
+        },
+    )
+
+
+def render_page_header(title: str, subtitle: str) -> None:
+    """Render a compact page title below the global navbar."""
     st.markdown(
         f"""
-        <div class="hero-banner">
-            <div class="hero-badge">{badge}</div>
-            <h1>{title}</h1>
+        <div class="page-header">
+            <h2>{title}</h2>
             <p>{subtitle}</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
+
+
+def render_methodology_expander(title: str, body_md: str) -> None:
+    """
+    Show collapsible methodology copy on an analysis page.
+
+    Args:
+        title: Expander label.
+        body_md: Markdown content explaining logic and models.
+    """
+    with st.expander(title, expanded=False):
+        st.markdown(body_md)
 
 
 def render_kpi_cards(items: list[tuple[str, str]]) -> None:
@@ -314,9 +448,39 @@ def channel_color_map(channels: list[str]) -> dict[str, str]:
     return {ch: CHANNEL_COLORS.get(ch, "#64748B") for ch in channels}
 
 
+def churn_risk_label(probability: float) -> str:
+    """
+    Map churn probability to Low / Medium / High risk band.
+
+    Args:
+        probability: Predicted churn probability in [0, 1].
+
+    Returns:
+        Risk level label.
+    """
+    if probability < 0.30:
+        return "Low"
+    if probability < 0.60:
+        return "Medium"
+    return "High"
+
+
+def _acquisition_data_mtime() -> float:
+    """File modification time used to invalidate Streamlit data cache."""
+    config = load_config()
+    return _resolve_path(config["data"]["acquisition_path"]).stat().st_mtime
+
+
+def _churn_model_mtime() -> float:
+    """Model file mtime for cache invalidation after retraining."""
+    config = load_config()
+    path = _resolve_path(config["models"]["churn_path"])
+    return path.stat().st_mtime if path.exists() else 0.0
+
+
 @st.cache_data
-def load_acquisition_data() -> pd.DataFrame:
-    """Load acquisition CSV with caching."""
+def load_acquisition_data(data_mtime: float) -> pd.DataFrame:
+    """Load acquisition CSV with caching (refreshes when the file changes)."""
     config = load_config()
     return pd.read_csv(_resolve_path(config["data"]["acquisition_path"]))
 
@@ -340,7 +504,7 @@ def load_channel_rfm_profiles() -> pd.DataFrame:
     """
     config = load_config()
     transactions = load_transaction_data()
-    acquisition = load_acquisition_data()
+    acquisition = load_acquisition_data(_acquisition_data_mtime())
 
     try:
         from lifetimes.utils import summary_data_from_transaction_data
@@ -407,15 +571,47 @@ def load_bgnbd_bundle():
         return None
 
 
+@st.cache_resource
+def load_churn_model(model_mtime: float) -> Any:
+    """Load churn classifier pipeline (refreshes when the model file changes)."""
+    config = load_config()
+    path = _resolve_path(config["models"]["churn_path"])
+    if not path.exists():
+        return None
+    return joblib.load(path)
+
+
+@st.cache_data
+def load_churn_metrics() -> dict[str, float] | None:
+    """Load persisted churn model evaluation metrics."""
+    config = load_config()
+    path = _resolve_path(config["models"]["churn_metrics_path"])
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def page_overview() -> None:
     """Campaign overview with KPIs and channel performance charts."""
-    render_hero(
+    render_page_header(
         "Campaign Overview",
-        "Clash Royale UA performance — installs, 90-day IAP, and channel ROAS (synthetic data).",
-        badge="Analytics",
+        "Channel-level UA performance — installs, 90-day IAP, and ROAS (synthetic data).",
+    )
+    render_methodology_expander(
+        "How are these metrics calculated?",
+        """
+        **Data:** 100k synthetic Clash Royale–style player profiles with correlated week-1
+        progression (battles → win rate → trophies → IAP).
+
+        **KPIs:** Totals and means from `acquisition_data.csv`. ROAS = `ltv_day90 / cost_per_install`
+        aggregated by channel and month.
+
+        **Charts:** Plotly bar (CPA by channel) and line (ROAS trend). All figures use
+        `use_container_width=True` for responsive layout.
+        """,
     )
 
-    df = load_acquisition_data()
+    df = load_acquisition_data(_acquisition_data_mtime())
 
     render_kpi_cards(
         [
@@ -515,10 +711,23 @@ def _predict_bgnbd_ltv(channel: str) -> float | None:
 
 def page_predictions() -> None:
     """Player retention and IAP prediction form using Clash Royale week-1 profile."""
-    render_hero(
+    render_page_header(
         "Player Predictions",
-        "Model uses CR progression signals: trophies, king level, win rate, Pass Royale, and clan status.",
-        badge="ML Models",
+        "Week-1 profile → Day-7 retention probability and 90-day IAP estimate.",
+    )
+    render_methodology_expander(
+        "How do retention and LTV predictions work?",
+        """
+        **Day-7 retention:** XGBoost classifier on UA channel, geo, device, king level, trophies,
+        battles, win rate, card upgrades, clan, and Pass Royale. Output is
+        `predict_proba` for class 1 (retained).
+
+        **90-day IAP (LTV):** XGBoost regressor on the same feature set, trained on synthetic
+        `ltv_day90` with progression-driven correlations.
+
+        **BG/NBD (optional):** When enabled, compares XGBoost LTV to a **lifetimes**
+        BG/NBD + Gamma-Gamma estimate using median RFM per UA channel for gem purchasers.
+        """,
     )
 
     config = load_config()
@@ -639,6 +848,209 @@ def page_predictions() -> None:
                 )
         else:
             st.info("Check **Compare BG/NBD** to show cohort-based IAP from transaction history.")
+
+
+def page_churn_prediction() -> None:
+    """Predict 14-day churn risk from player engagement and spend signals."""
+    render_page_header(
+        "Churn Prediction",
+        "14-day churn risk from engagement and spend (not from days since last login).",
+    )
+    render_methodology_expander(
+        "How is churn defined and modeled?",
+        """
+        **Definition:** A player **churns** if they have not logged in for **14+ days**
+        (`days_since_last_login >= 14` in synthetic data).
+
+        **Model:** XGBoost classifier (`n_estimators=200`, `max_depth=5`, `learning_rate=0.05`)
+        on king level, trophies, win rate, matches played, days active, Pass Royale,
+        sessions/day, battle duration, and total spend.
+
+        **Note:** `days_since_last_login` is **not** a model input (it would leak the label).
+        Risk bands: **Low** under 30%, **Medium** 30–60%, **High** 60%+.
+        """,
+    )
+
+    churn_model = load_churn_model(_churn_model_mtime())
+    metrics = load_churn_metrics()
+
+    if churn_model is None:
+        st.error(
+            "Churn model not found. Run:\n"
+            "`py src/data_generation.py`\n"
+            "`py src/train_churn_model.py`"
+        )
+        return
+
+    if metrics:
+        st.markdown("##### Model performance (hold-out test)")
+        m1, m2, m3, m4 = st.columns(4, gap="medium")
+        with m1:
+            st.metric("Accuracy", f"{metrics['accuracy']:.1%}")
+        with m2:
+            st.metric("Precision", f"{metrics['precision']:.1%}")
+        with m3:
+            st.metric("Recall", f"{metrics['recall']:.1%}")
+        with m4:
+            st.metric("ROC-AUC", f"{metrics['roc_auc']:.2f}")
+
+    with st.container(border=True):
+        st.markdown("##### Player engagement inputs")
+        with st.form("churn_form", border=False):
+            col1, col2 = st.columns(2, gap="large")
+            with col1:
+                king_level = st.number_input(
+                    "King level", min_value=1, max_value=14, value=5, step=1
+                )
+                trophies = st.number_input(
+                    "Trophies", min_value=0, max_value=4500, value=600, step=50
+                )
+                win_rate = st.slider(
+                    "Win rate", min_value=0.18, max_value=0.82, value=0.50, step=0.01
+                )
+                matches_played = st.number_input(
+                    "Matches played", min_value=1, max_value=500, value=40, step=1
+                )
+                days_active = st.number_input(
+                    "Days active", min_value=1, max_value=120, value=14, step=1
+                )
+            with col2:
+                pass_royale = st.selectbox("Pass Royale", [0, 1], format_func=lambda x: "Yes" if x else "No")
+                avg_sessions_per_day = st.slider(
+                    "Avg sessions per day",
+                    min_value=0.2,
+                    max_value=12.0,
+                    value=2.5,
+                    step=0.1,
+                )
+                avg_battle_duration = st.slider(
+                    "Avg battle duration (min)",
+                    min_value=1.0,
+                    max_value=8.0,
+                    value=3.5,
+                    step=0.1,
+                )
+                total_spend = st.number_input(
+                    "Total spend ($)",
+                    min_value=0.0,
+                    max_value=500.0,
+                    value=25.0,
+                    step=1.0,
+                )
+
+            submitted = st.form_submit_button(
+                "Predict Churn Risk", type="primary", use_container_width=True
+            )
+
+    if submitted:
+        input_df = pd.DataFrame(
+            [
+                {
+                    "king_level": king_level,
+                    "trophies": trophies,
+                    "win_rate": win_rate,
+                    "matches_played": matches_played,
+                    "days_active": days_active,
+                    "pass_royale": pass_royale,
+                    "avg_sessions_per_day": avg_sessions_per_day,
+                    "avg_battle_duration": avg_battle_duration,
+                    "total_spend": total_spend,
+                }
+            ]
+        )
+        churn_prob = float(churn_model.predict_proba(input_df[CHURN_FEATURE_COLUMNS])[0, 1])
+        risk = churn_risk_label(churn_prob)
+
+        st.markdown("##### Prediction")
+        c1, c2 = st.columns(2, gap="medium")
+        with c1:
+            st.metric("Churn probability", f"{churn_prob:.0%}")
+        with c2:
+            st.metric("Risk level", risk)
+
+        xgb_model = churn_model.named_steps["model"]
+        importance = pd.DataFrame(
+            {
+                "feature": CHURN_FEATURE_COLUMNS,
+                "importance": xgb_model.feature_importances_,
+            }
+        ).sort_values("importance", ascending=True)
+
+        imp_fig = px.bar(
+            importance,
+            x="importance",
+            y="feature",
+            orientation="h",
+            title="Top Churn Drivers",
+            labels={"importance": "Importance", "feature": "Feature"},
+            template="plotly_white",
+        )
+        style_plotly_fig(imp_fig)
+        st.plotly_chart(imp_fig, use_container_width=True)
+
+
+def page_cohort_analysis() -> None:
+    """Retention cohort heatmap and summary metrics by install week."""
+    render_page_header(
+        "Cohort Analysis",
+        "Install-week retention (D1, D7, D30) from synthetic login activity.",
+    )
+    render_methodology_expander(
+        "How are cohort retention rates built?",
+        """
+        **Cohorts:** `install_week` from `install_date` (weekly period).
+
+        **Retention flags** (days between install and last login):
+        - **D1:** active at least once after install day (span ≥ 1)
+        - **D7:** span ≥ 7 days
+        - **D30:** span ≥ 30 days
+
+        The heatmap shows each cohort’s % retained; the curve averages D1/D7/D30 across weeks.
+        """,
+    )
+
+    df = load_acquisition_data(_acquisition_data_mtime())
+    cohort_df = prepare_cohort_frame(df)
+    retention_matrix = build_retention_matrix(cohort_df)
+    averages = average_retention_metrics(retention_matrix)
+
+    st.markdown("##### Cohort summary")
+    s1, s2, s3 = st.columns(3, gap="medium")
+    with s1:
+        st.metric("Average D1 Retention", f"{averages['d1']:.1f}%")
+    with s2:
+        st.metric("Average D7 Retention", f"{averages['d7']:.1f}%")
+    with s3:
+        st.metric("Average D30 Retention", f"{averages['d30']:.1f}%")
+
+    heatmap_fig = px.imshow(
+        retention_matrix,
+        text_auto=".1f",
+        aspect="auto",
+        color_continuous_scale="Blues",
+        labels=dict(x="Retention day", y="Install week", color="Retention %"),
+        title="Retention Cohort Heatmap",
+    )
+    style_plotly_fig(heatmap_fig)
+    st.plotly_chart(heatmap_fig, use_container_width=True)
+
+    curve_df = retention_curve_averages(retention_matrix)
+    curve_fig = px.line(
+        curve_df,
+        x="day_label",
+        y="retention_pct",
+        title="Retention Curve",
+        labels={"day_label": "Day", "retention_pct": "Retention %"},
+        markers=True,
+        template="plotly_white",
+    )
+    curve_fig.update_traces(line=dict(width=2.5), marker=dict(size=8))
+    style_plotly_fig(curve_fig)
+    st.plotly_chart(curve_fig, use_container_width=True)
+
+    st.markdown("##### Retention matrix (%)")
+    display_matrix = retention_matrix.reset_index().rename(columns={"install_week": "Install Week"})
+    st.dataframe(display_matrix, use_container_width=True, hide_index=True)
 
 
 @st.fragment
@@ -853,15 +1265,29 @@ def _optimizer_panel(
 
 def page_optimizer() -> None:
     """Budget allocation optimizer across ad channels."""
-    render_hero(
+    render_page_header(
         "Budget Optimizer",
-        "Maximize expected IAP return across UA channels for Clash Royale campaigns.",
-        badge="Optimization",
+        "Allocate UA budget across channels with diminishing returns and uncertainty bands.",
+    )
+    render_methodology_expander(
+        "How does budget optimization work?",
+        """
+        **Objective:** Maximize expected IAP return subject to total budget, per-channel
+        minimums, and a **max share per channel** cap (default 40%).
+
+        **Response curve:** `return = base_roas × saturation × log(1 + spend/saturation)` so
+        marginal ROAS falls as spend rises (audience saturation).
+
+        **Uncertainty:** Monte Carlo simulates ROAS noise (historical std or 15% CV) for
+        P10/P50/P90 total and per-channel returns.
+
+        **Solver:** SciPy SLSQP (nonlinear). TikTok has lower saturation scale in config.
+        """,
     )
 
     config = load_config()
     channels = config["channels"]
-    df = load_acquisition_data()
+    df = load_acquisition_data(_acquisition_data_mtime())
 
     predicted_roas = df.groupby("acquisition_channel")["roas_90d"].mean().to_dict()
     roas_std = df.groupby("acquisition_channel")["roas_90d"].std().fillna(0).to_dict()
@@ -889,6 +1315,98 @@ def page_optimizer() -> None:
         )
 
 
+def page_methodology() -> None:
+    """Project documentation, model stack, and synthetic data notes."""
+    render_page_header(
+        "Metodologia & Info",
+        "Architecture, models, and how synthetic Clash Royale UA data is built.",
+    )
+
+    with st.container(border=True):
+        st.markdown('<p class="info-section-title">Product scope</p>', unsafe_allow_html=True)
+        st.markdown(
+            """
+            **UA Optimizer** is a portfolio-grade analytics app for mobile game UA teams.
+            It replaces a scattered CSV → Jupyter → Tableau workflow with one product:
+            campaign KPIs, ML predictions, churn risk, cohort retention, and budget allocation.
+            """
+        )
+        st.caption("Fan project · Not affiliated with Supercell")
+
+    with st.container(border=True):
+        st.markdown('<p class="info-section-title">Data pipeline</p>', unsafe_allow_html=True)
+        pipeline_steps = [
+            ("`src/data_generation.py`", "100k synthetic players with CR-style progression"),
+            ("`src/train_*_model.py`", "Retention, LTV, churn, and BG/NBD training"),
+            ("`app/streamlit_app.py`", "Interactive dashboard (this UI)"),
+            ("`config/config.yaml`", "Paths, channels, and optimizer saturation scales"),
+        ]
+        for index, (path, description) in enumerate(pipeline_steps, start=1):
+            st.markdown(
+                f"""
+                <div class="pipeline-step">
+                    <span class="pipeline-num">{index}</span>
+                    <span><strong>{path}</strong> — {description}</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    col1, col2 = st.columns(2, gap="medium")
+    with col1:
+        with st.container(border=True):
+            st.markdown('<p class="info-section-title">ML models</p>', unsafe_allow_html=True)
+            st.dataframe(
+                pd.DataFrame(
+                    {
+                        "Model": ["Retention", "LTV", "Churn", "BG/NBD"],
+                        "Algorithm": [
+                            "XGBoost classifier",
+                            "XGBoost regressor",
+                            "XGBoost classifier",
+                            "lifetimes",
+                        ],
+                        "Target": [
+                            "Day-7 retention",
+                            "90-day IAP",
+                            "14-day idle churn",
+                            "Gem-buyer LTV",
+                        ],
+                    }
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+    with col2:
+        with st.container(border=True):
+            st.markdown('<p class="info-section-title">Optimization</p>', unsafe_allow_html=True)
+            st.markdown(
+                """
+                **Budget allocation** uses log diminishing returns per channel and
+                Monte Carlo ROAS noise (2,000 simulations by default).
+
+                **SciPy SLSQP** enforces total budget, per-channel minimums, and a max
+                channel share cap (typically 40%).
+                """
+            )
+
+    with st.container(border=True):
+        st.markdown('<p class="info-section-title">Tech stack</p>', unsafe_allow_html=True)
+        stack_cols = st.columns(4, gap="small")
+        for col, label in zip(
+            stack_cols,
+            ["Streamlit", "Pandas · NumPy", "XGBoost · sklearn", "SciPy · Plotly"],
+        ):
+            with col:
+                st.markdown(
+                    f'<div style="text-align:center;padding:0.5rem;background:#f8fafc;'
+                    f'border-radius:8px;font-size:0.85rem;font-weight:600;color:#475569;">'
+                    f"{label}</div>",
+                    unsafe_allow_html=True,
+                )
+        st.caption("BG/NBD training uses `lifetimes` from requirements-dev.txt")
+
+
 def main() -> None:
     """Run the multipage Streamlit application."""
     try:
@@ -902,37 +1420,31 @@ def main() -> None:
 def _run_app() -> None:
     """Render the multipage dashboard."""
     config = load_config()
-    game_title = config.get("game", {}).get("title", "Clash Royale UA Optimizer")
+    game_title = config.get("game", {}).get("title", APP_TITLE)
 
     st.set_page_config(
         page_title=game_title,
         page_icon="📊",
         layout="wide",
-        initial_sidebar_state="expanded",
+        initial_sidebar_state="collapsed",
     )
 
     inject_custom_css()
+    selected = render_app_chrome()
 
-    with st.sidebar:
-        st.markdown(f'<p class="sidebar-brand">{game_title}</p>', unsafe_allow_html=True)
-        st.markdown(
-            '<p class="sidebar-tagline">Synthetic CR player data · retention & IAP ML · UA budget</p>',
-            unsafe_allow_html=True,
-        )
-        page = st.radio(
-            "Navigation",
-            ["Campaign Overview", "Player Predictions", "Budget Optimizer"],
-            label_visibility="collapsed",
-        )
-        st.divider()
-        st.caption("Fan project · Not affiliated with Supercell")
-
-    if page == "Campaign Overview":
-        page_overview()
-    elif page == "Player Predictions":
-        page_predictions()
-    else:
-        page_optimizer()
+    with st.container(border=True):
+        if selected == "Campaign Overview":
+            page_overview()
+        elif selected == "Player Predictions":
+            page_predictions()
+        elif selected == "Churn Prediction":
+            page_churn_prediction()
+        elif selected == "Cohort Analysis":
+            page_cohort_analysis()
+        elif selected == "Budget Optimizer":
+            page_optimizer()
+        else:
+            page_methodology()
 
 
 main()

@@ -20,6 +20,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 STEPS: list[tuple[str, Path]] = [
     ("Generate acquisition and transaction CSVs", PROJECT_ROOT / "src" / "data_generation.py"),
     ("Train retention classifier", PROJECT_ROOT / "src" / "train_retention_model.py"),
+    ("Train churn classifier", PROJECT_ROOT / "src" / "train_churn_model.py"),
     ("Train LTV regressor", PROJECT_ROOT / "src" / "train_ltv_model.py"),
     ("Train BG/NBD + Gamma-Gamma model", PROJECT_ROOT / "src" / "train_bgnbd_model.py"),
 ]

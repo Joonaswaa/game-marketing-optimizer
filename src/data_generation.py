@@ -260,10 +260,68 @@ def generate_acquisition_data(
 
     roas_90d = np.where(cost_per_install > 0, ltv_day90 / cost_per_install, 0.0)
 
+    days_active = np.clip(
+        rng.integers(2, 45, size=n_users)
+        + retained_day7 * rng.integers(10, 55, size=n_users)
+        + (battles_week1 // 4),
+        1,
+        120,
+    ).astype(int)
+
+    avg_sessions_per_day = np.clip(
+        battles_week1 / 7.0 * rng.uniform(0.75, 1.25, size=n_users)
+        + retained_day7 * 0.35
+        + rng.normal(0, 0.25, size=n_users),
+        0.2,
+        12.0,
+    )
+
+    avg_battle_duration = np.clip(
+        rng.normal(3.2, 0.9, size=n_users) + battles_week1 * 0.015,
+        1.0,
+        8.0,
+    )
+
+    matches_played = np.clip(
+        battles_week1 + rng.integers(0, 180, size=n_users) * retained_day7,
+        1,
+        500,
+    ).astype(int)
+
+    total_spend = np.round(ltv_day90 * rng.uniform(0.80, 1.20, size=n_users), 2)
+
+    # Login gap from engagement (used for churn label only — not a model feature).
+    login_gap = (
+        (1 - retained_day7) * rng.integers(6, 20, size=n_users)
+        + (1 - win_rate_week1) * 5
+        + np.maximum(0, 12 - battles_week1 // 5)
+        + (1 - clan_member) * 3
+        - pass_royale_active * 4
+        - np.minimum(avg_sessions_per_day, 6) * 1.5
+        + rng.exponential(2.0, size=n_users)
+    )
+    days_since_last_login = np.clip(login_gap.astype(int), 0, 90)
+
+    # Spec: churned when idle 14+ days; label is not leaked into XGBoost features.
+    churned = (days_since_last_login >= 14).astype(int)
+
+    last_login_dates: list[str] = []
+    for index in range(n_users):
+        acq_dt = datetime.strptime(acquisition_dates[index], "%Y-%m-%d")
+        max_offset = max((end_date - acq_dt).days, 0)
+        if churned[index] == 1:
+            offset = max(days_active[index] - days_since_last_login[index], 0)
+        else:
+            offset = min(days_active[index] - 1, max_offset)
+        offset = int(np.clip(offset, 0, max_offset))
+        last_login_dates.append((acq_dt + timedelta(days=offset)).strftime("%Y-%m-%d"))
+
     df = pd.DataFrame(
         {
             "user_id": user_ids,
             "acquisition_date": acquisition_dates,
+            "install_date": acquisition_dates,
+            "last_login_date": last_login_dates,
             "acquisition_channel": acquisition_channels,
             "country": country_codes,
             "device_type": device_types,
@@ -280,14 +338,25 @@ def generate_acquisition_data(
             "ltv_day90": np.round(ltv_day90, 2),
             "is_purchaser": is_purchaser,
             "roas_90d": np.round(roas_90d, 2),
+            "trophies": trophies_end_week1,
+            "win_rate": np.round(win_rate_week1, 3),
+            "matches_played": matches_played,
+            "pass_royale": pass_royale_active,
+            "days_active": days_active,
+            "days_since_last_login": days_since_last_login,
+            "avg_sessions_per_day": np.round(avg_sessions_per_day, 2),
+            "avg_battle_duration": np.round(avg_battle_duration, 2),
+            "total_spend": total_spend,
+            "churned": churned,
         }
     )
 
     logger.info(
-        "Generated CR player data: %d users, retention %.1f%%, pass rate %.1f%%, "
-        "clan rate %.1f%%, purchaser rate %.1f%%",
+        "Generated CR player data: %d users, retention %.1f%%, churn %.1f%%, "
+        "pass rate %.1f%%, clan rate %.1f%%, purchaser rate %.1f%%",
         len(df),
         df["retained_day7"].mean() * 100,
+        df["churned"].mean() * 100,
         df["pass_royale_active"].mean() * 100,
         df["clan_member"].mean() * 100,
         df["is_purchaser"].mean() * 100,

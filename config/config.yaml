@@ -10,6 +10,13 @@ models:
   retention_path: "models/retention_model.joblib"
   ltv_xgboost_path: "models/ltv_xgboost_model.joblib"
   bgnbd_path: "models/bgnbd_model.joblib"
+  churn_path: "models/churn_model.joblib"
+  churn_metrics_path: "models/churn_metrics.json"
+
+churn_training:
+  n_estimators: 200
+  max_depth: 5
+  learning_rate: 0.05
 
 training:
   test_size: 0.2
@@ -18,7 +25,7 @@ training:
   learning_rate: 0.1
 
 game:
-  title: "Clash Royale UA Optimizer"
+  title: "UA Optimizer"
   tagline: "Synthetic player profiles modeled on CR progression and IAP loops"
   currency: "USD"
 
